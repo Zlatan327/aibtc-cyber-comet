@@ -1,0 +1,51 @@
+{
+  "name": "stx402-agent",
+  "version": "1.0.0",
+  "description": "Claude Code MCP server for x402 endpoint discovery and execution with Stacks wallet integration",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "stx402-agent": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "mcp",
+    "model-context-protocol",
+    "x402",
+    "stacks",
+    "blockchain",
+    "crypto",
+    "payments"
+  ],
+  "author": "biwas",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/biwasxyz/stx402-agent.git"
+  },
+  "homepage": "https://github.com/biwasxyz/stx402-agent#readme",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "@stacks/wallet-sdk": "^6.0.0",
+    "axios": "^1.7.0",
+    "dotenv": "^16.4.0",
+    "x402-stacks": "^1.1.1",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
