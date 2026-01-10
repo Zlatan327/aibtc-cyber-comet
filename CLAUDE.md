@@ -104,29 +104,26 @@ Add to your Claude Code MCP settings:
 - `broadcast_transaction` - Broadcast a pre-signed transaction
 
 ### x402 API Endpoints
-- `execute_x402_endpoint` - Execute any x402 endpoint with automatic payment handling. Supports `apiUrl` parameter to call different API sources.
+- `execute_x402_endpoint` - Execute ANY x402 endpoint URL with automatic payment handling. Can use full URL or path+apiUrl.
 
 ## Agent Behavior Guidelines
 
 When a user asks for something:
 
 1. **For "transfer X STX to Y"** → Use `transfer_stx` directly
-2. **For DeFi/market queries** → Use `list_x402_endpoints` to find relevant endpoint, then `execute_x402_endpoint`
-3. **For AI services** → Use endpoints from stx402.com with `apiUrl: "https://stx402.com"`
-4. **For unknown actions** → Check `list_x402_endpoints` first. If not found, inform user it's not available.
+2. **For known x402 endpoints** → Use `list_x402_endpoints` to find relevant endpoint, then `execute_x402_endpoint`
+3. **For any x402 URL** → Use `execute_x402_endpoint` with full `url` parameter - works with ANY x402-compatible endpoint
+4. **For unknown actions** → Ask user for the x402 endpoint URL or check if it's a direct blockchain action
 
 ### Example User Requests
 
 | Request | Action |
 |---------|--------|
 | "Send 2 STX to ST1..." | `transfer_stx` with amount "2000000" |
-| "What are trending pools?" | `execute_x402_endpoint` GET /api/pools/trending |
-| "Analyze my wallet" | `execute_x402_endpoint` POST /api/wallet/classify |
-| "Get latest news" | `execute_x402_endpoint` GET /api/news |
-| "Tell me a dad joke" | `execute_x402_endpoint` GET /api/ai/dad-joke with apiUrl="https://stx402.com" |
-| "Summarize this text" | `execute_x402_endpoint` POST /api/ai/summarize with apiUrl="https://stx402.com" |
-| "Generate a QR code" | `execute_x402_endpoint` POST /api/util/qr-generate with apiUrl="https://stx402.com" |
-| "Order pizza" | Not available - inform user |
+| "What are trending pools?" | `execute_x402_endpoint` with path="/api/pools/trending" |
+| "Call https://example.com/api/data" | `execute_x402_endpoint` with url="https://example.com/api/data" |
+| "Tell me a dad joke" | `execute_x402_endpoint` with url="https://stx402.com/api/ai/dad-joke" |
+| "Use this endpoint: https://myapi.com/paid" | `execute_x402_endpoint` with url="https://myapi.com/paid" |
 
 ### Endpoint Categories
 
