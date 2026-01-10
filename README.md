@@ -1,6 +1,13 @@
 # stx402-agent
 
-An MCP (Model Context Protocol) server that enables Claude Code to interact with x402 endpoints using your Stacks wallet. The plugin automatically handles x402 payment challenges when accessing paid API endpoints.
+An MCP (Model Context Protocol) server that enables Claude Code to interact with x402 endpoints and execute Stacks blockchain transactions using your wallet.
+
+## Features
+
+- **x402 Endpoint Discovery** - List and search available paid API endpoints
+- **Automatic Payments** - Handles x402 payment challenges automatically
+- **Direct Transactions** - Transfer STX, call contracts, deploy smart contracts
+- **Multi-Source Support** - Access endpoints from x402.biwas.xyz and stx402.com
 
 ## What is x402?
 
@@ -9,8 +16,6 @@ x402 endpoints return HTTP 402 (Payment Required) responses that include payment
 ## Quick Start
 
 ### Option 1: Using npx (Recommended)
-
-Add to Claude Code with a single command:
 
 ```bash
 claude mcp add stx402 npx stx402-agent -e CLIENT_MNEMONIC="your 24 word mnemonic" -e NETWORK=testnet
@@ -45,26 +50,77 @@ Add to your Claude Code settings (`~/.claude.json`):
 
 After adding, restart Claude Code for the MCP server to load.
 
-## Usage
+## Usage Examples
 
-Once configured, you can ask Claude to use the x402 tools:
+**Discover available endpoints:**
+> "What x402 endpoints are available?"
+> "Show me AI service endpoints"
+> "List free market data endpoints"
 
 **Check your wallet:**
 > "What's my wallet address?"
+> "What's my STX balance?"
 
-**Check position health (Zest protocol):**
-> "Check the health status of my Zest position"
+**Transfer STX:**
+> "Send 2 STX to ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
 
-**Execute any x402 endpoint:**
-> "Call the /api/zest/position-health endpoint"
+**Execute x402 endpoints:**
+> "Get trending liquidity pools"
+> "Analyze my wallet behavior"
+> "Tell me a dad joke" (uses stx402.com)
+> "Summarize this article: ..."
+
+**Smart contract interactions:**
+> "Call the transfer function on this contract..."
+> "Deploy this Clarity contract..."
 
 ## Available Tools
 
+### Endpoint Discovery
 | Tool | Description |
 |------|-------------|
-| `get_wallet_info` | Returns your configured wallet address and network |
-| `check_position_health` | Checks Zest protocol position health for your wallet |
-| `execute_x402_endpoint` | Execute any x402 endpoint with automatic payment handling |
+| `list_x402_endpoints` | Discover available x402 endpoints with search/filter |
+
+### Wallet & Balance
+| Tool | Description |
+|------|-------------|
+| `get_wallet_info` | Get wallet address, network, and API URL |
+| `get_stx_balance` | Get STX balance for any address |
+
+### Direct Stacks Transactions
+| Tool | Description |
+|------|-------------|
+| `transfer_stx` | Transfer STX tokens to a recipient |
+| `call_contract` | Call a smart contract function |
+| `deploy_contract` | Deploy a Clarity smart contract |
+| `get_transaction_status` | Check transaction status by txid |
+| `broadcast_transaction` | Broadcast a pre-signed transaction |
+
+### x402 API Endpoints
+| Tool | Description |
+|------|-------------|
+| `execute_x402_endpoint` | Execute any x402 endpoint with auto-payment |
+
+## API Sources
+
+The agent supports endpoints from two x402 API sources:
+
+### x402.biwas.xyz (Default)
+- **DeFi Analytics**: Portfolio analysis, strategy builder
+- **Market Data**: Stats, gainers, losers, whale trades
+- **Wallet Analysis**: Classification, trading behavior, P&L
+- **ALEX DEX**: Swap optimizer, pool risk, arbitrage scanner
+- **Zest Protocol**: Liquidation risk, yield optimizer, position health
+- **Tokens & Pools**: Trending pools, token details, OHLCV data
+
+### stx402.com
+- **AI Services**: Summarize, translate, TTS, image generation, dad jokes
+- **Stacks Blockchain**: Address conversion, tx decode, contract info
+- **Cryptography**: SHA256, SHA512, Keccak256, HMAC
+- **Storage**: Key-value, SQL database, paste service
+- **Utilities**: QR codes, signature verification
+- **Infrastructure**: Locks, job queues, counters
+- **Agent Registry**: ERC-8004 agent registry and reputation
 
 ## Configuration Options
 
@@ -72,32 +128,31 @@ Once configured, you can ask Claude to use the x402 tools:
 |---------------------|-------------|---------|
 | `CLIENT_MNEMONIC` | Your 24-word Stacks wallet mnemonic | (required) |
 | `NETWORK` | `mainnet` or `testnet` | `testnet` |
-| `API_URL` | Base URL for x402 endpoints | `https://x402.biwas.xyz` |
+| `API_URL` | Default x402 API base URL | `https://x402.biwas.xyz` |
 
 ## How It Works
 
 ```
 You → Claude Code → stx402-agent MCP Server
                            ↓
-                    Makes API request
-                           ↓
-                    Receives HTTP 402
-                           ↓
-                    x402-stacks interceptor:
-                    - Parses payment requirements
-                    - Signs transaction with your wallet
-                    - Broadcasts payment
-                    - Retries request with payment proof
-                           ↓
-                    Returns actual response to Claude
+              ┌────────────┴────────────┐
+              ↓                         ↓
+       x402 Endpoints            Stacks Transactions
+              ↓                         ↓
+       HTTP 402 Payment          Sign & Broadcast
+       Auto-handling             via Hiro API
+              ↓                         ↓
+       x402.biwas.xyz            Stacks Blockchain
+       stx402.com
 ```
 
 ## Security Notes
 
-- Your mnemonic is stored in the Claude Code configuration and passed as an environment variable to the MCP server
+- Your mnemonic is stored in the Claude Code configuration and passed as an environment variable
 - The mnemonic never leaves your local machine
 - Only use wallets with funds you're willing to spend on x402 payments
 - Consider using a dedicated wallet for x402 interactions
+- Transactions are signed locally before broadcast
 
 ## Development
 
