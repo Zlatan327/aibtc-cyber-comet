@@ -52,6 +52,19 @@ stx402-agent MCP Server (src/index.ts)
 - `src/api.ts` - Axios client with x402-stacks payment interceptor (supports multiple API sources)
 - `src/wallet.ts` - Wallet operations and transaction signing using @stacks/transactions
 - `src/endpoints.ts` - Known x402 endpoint registry from both API sources
+- `src/services/bns.service.ts` - BNS name resolution (supports both V1 and V2)
+- `src/services/hiro-api.ts` - Hiro API client + BNS V2 API client
+
+### BNS V1 vs V2
+
+The agent supports both BNS naming systems:
+
+| System | API | Usage |
+|--------|-----|-------|
+| BNS V1 | `api.hiro.so/v1/names/{name}` | Legacy names (older registrations) |
+| BNS V2 | `api.bnsv2.com/names/{name}` | Current system (most .btc names) |
+
+BNS tools automatically check V2 first for `.btc` names, falling back to V1 for legacy support.
 
 ### x402 Payment Flow
 
@@ -140,3 +153,52 @@ When a user asks for something:
 - Utilities (QR codes, signature verification)
 - Registry, Links, Counters, Job Queue, Memory
 - Agent Registry & Reputation
+
+---
+
+## Knowledge Base References
+
+Use the local knowledge base for Stacks/Clarity and protocol guidance: `/Users/biwas/claudex402/claude-knowledge`
+
+### Quick Reference (Nuggets)
+Fast lookups for common facts and gotchas:
+
+- `nuggets/stacks.md` - Tenero API, SIWS, SIP-018 signing standards quick reference
+- `nuggets/clarity.md` - Core principles, gotchas, error handling, testing commands
+- `nuggets/cloudflare.md` - Worker deployment best practices (prefer CI/CD over direct deploy)
+- `nuggets/node.md` - Node.js and TypeScript tooling tips
+- `nuggets/github.md` - GitHub API, Actions, and Pages workflows
+- `nuggets/git.md` - Git workflow tips and commands
+
+### Deep Reference (Context)
+Comprehensive documentation for detailed guidance:
+
+- `context/clarity-reference.md` - Complete Clarity language reference
+- `context/siws-guide.md` and `context/sip-siws.md` - SIWS auth flows and implementation
+- `context/sip-018.md` - Signed Structured Data standard for on-chain verification
+- `context/tenero-api.md` and `downloads/2025-01-06-tenero-openapi-spec.json` - Market data APIs
+
+### Patterns & Best Practices
+Reusable code patterns and architectural guidance:
+
+- `patterns/clarity-patterns.md` - Comprehensive Clarity code patterns (public functions, events, error handling, bit flags, multi-send, whitelisting, DAO proposals, fixed-point math, treasury patterns)
+- `patterns/clarity-testing.md` - Testing tooling and patterns for Clarity contracts
+- `patterns/skill-organization.md` - Three-layer pattern (SKILL → RUNBOOK → HELPERS) for maintainable workflows
+
+### Architectural Decisions
+Design principles and workflow patterns:
+
+- `decisions/0002-clarity-design-principles.md` - Contract design rules, security patterns, Clarity 4 features
+- `decisions/0001-workflow-component-design.md` - Development workflow component patterns (OODA loop, planning flows, composable workflows)
+
+### Runbooks
+Step-by-step operational guides:
+
+- `runbook/clarity-development.md` - Clarity dev workflows and checklists
+- `runbook/cloudflare-scaffold.md` - Cloudflare Worker setup, wrangler config, credentials, deployment patterns
+- `runbook/cloudflare-shared-logger.md` - Shared logging utilities for Cloudflare Workers
+- `runbook/setup-github-pat.md` - GitHub Personal Access Token setup
+- `runbook/setup-sprout-cron.md` - Sprout documentation cron job setup
+- `runbook/sprout-docs.md` - Sprout documentation system overview
+- `runbook/sprout-docs-github-pages.md` - Documentation site deployment with GitHub Pages
+- `runbook/updating-claude-knowledge.md` - Knowledge base maintenance and sanitization guidelines

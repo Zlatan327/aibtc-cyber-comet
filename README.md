@@ -1,17 +1,18 @@
 # stx402-agent
 
-An MCP (Model Context Protocol) server that enables Claude Code to interact with x402 endpoints and execute Stacks blockchain transactions using your wallet.
+An MCP (Model Context Protocol) server that enables Claude to interact with the Stacks blockchain and x402 paid API endpoints.
 
 ## Features
 
-- **x402 Endpoint Discovery** - List and search available paid API endpoints
-- **Automatic Payments** - Handles x402 payment challenges automatically
+- **50+ Tools** - Comprehensive Stacks blockchain operations
+- **sBTC Support** - Native Bitcoin on Stacks operations
+- **Token Operations** - SIP-010 fungible token transfers and queries
+- **NFT Support** - SIP-009 NFT holdings, transfers, and metadata
+- **DeFi Integration** - Swap quotes, liquidity pools, lending markets
+- **Stacking/PoX** - Stacking status, rewards, and delegation
+- **BNS Domains** - .btc domain lookups and management
+- **x402 Payments** - Automatic payment handling for paid APIs
 - **Direct Transactions** - Transfer STX, call contracts, deploy smart contracts
-- **Multi-Source Support** - Access endpoints from x402.biwas.xyz and stx402.com
-
-## What is x402?
-
-x402 endpoints return HTTP 402 (Payment Required) responses that include payment details. This plugin intercepts those responses, automatically signs and broadcasts the required payment using your Stacks wallet, then retries the request with proof of payment.
 
 ## Quick Start
 
@@ -48,38 +49,7 @@ Add to your Claude Code settings (`~/.claude.json`):
 }
 ```
 
-After adding, restart Claude Code for the MCP server to load.
-
-## Usage Examples
-
-**Discover available endpoints:**
-> "What x402 endpoints are available?"
-> "Show me AI service endpoints"
-> "List free market data endpoints"
-
-**Check your wallet:**
-> "What's my wallet address?"
-> "What's my STX balance?"
-
-**Transfer STX:**
-> "Send 2 STX to ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
-
-**Execute x402 endpoints:**
-> "Get trending liquidity pools"
-> "Analyze my wallet behavior"
-> "Tell me a dad joke" (uses stx402.com)
-> "Summarize this article: ..."
-
-**Smart contract interactions:**
-> "Call the transfer function on this contract..."
-> "Deploy this Clarity contract..."
-
-## Available Tools
-
-### Endpoint Discovery
-| Tool | Description |
-|------|-------------|
-| `list_x402_endpoints` | Discover available x402 endpoints with search/filter |
+## Available Tools (53 total)
 
 ### Wallet & Balance
 | Tool | Description |
@@ -87,42 +57,145 @@ After adding, restart Claude Code for the MCP server to load.
 | `get_wallet_info` | Get wallet address, network, and API URL |
 | `get_stx_balance` | Get STX balance for any address |
 
-### Direct Stacks Transactions
+### STX Transfers
 | Tool | Description |
 |------|-------------|
 | `transfer_stx` | Transfer STX tokens to a recipient |
+| `broadcast_transaction` | Broadcast a pre-signed transaction |
+
+### sBTC Operations
+| Tool | Description |
+|------|-------------|
+| `sbtc_get_balance` | Get sBTC balance for an address |
+| `sbtc_transfer` | Transfer sBTC to a recipient |
+| `sbtc_get_deposit_info` | Get BTC deposit address/instructions |
+| `sbtc_get_peg_info` | Get current peg ratio and TVL |
+| `sbtc_get_withdrawal_status` | Check withdrawal operation status |
+
+### Token Operations (SIP-010)
+| Tool | Description |
+|------|-------------|
+| `get_token_balance` | Get balance of any SIP-010 token |
+| `transfer_token` | Transfer any SIP-010 token |
+| `get_token_info` | Get token metadata (name, symbol, decimals) |
+| `list_user_tokens` | List all tokens owned by an address |
+| `get_token_holders` | Get top holders of a token |
+
+### NFT Operations (SIP-009)
+| Tool | Description |
+|------|-------------|
+| `get_nft_holdings` | List NFTs owned by an address |
+| `get_nft_metadata` | Get NFT metadata |
+| `transfer_nft` | Transfer NFT to a recipient |
+| `get_nft_owner` | Get current NFT owner |
+| `get_collection_info` | Get NFT collection details |
+| `get_nft_history` | Get NFT transfer history |
+
+### DeFi Operations
+| Tool | Description |
+|------|-------------|
+| `get_swap_quote` | Get best swap route across DEXs |
+| `execute_swap` | Execute a token swap |
+| `get_pool_info` | Get liquidity pool details |
+| `get_pools_list` | List available liquidity pools |
+| `add_liquidity` | Add liquidity to a pool |
+| `remove_liquidity` | Remove liquidity from a pool |
+| `get_lending_markets` | List lending opportunities |
+| `get_defi_positions` | Get all DeFi positions for an address |
+
+### Stacking / PoX
+| Tool | Description |
+|------|-------------|
+| `get_pox_info` | Get current PoX cycle info |
+| `get_stacking_status` | Check if address is stacking |
+| `get_stacking_rewards` | Get accumulated BTC rewards |
+| `stack_stx` | Lock STX for stacking |
+| `extend_stacking` | Extend stacking period |
+| `get_stacking_pool_info` | Get stacking pool details |
+
+### BNS Domains (V1 + V2)
+| Tool | Description |
+|------|-------------|
+| `lookup_bns_name` | Resolve .btc domain to address (supports BNS V2) |
+| `reverse_bns_lookup` | Get .btc domain for an address |
+| `get_bns_info` | Get domain details (expiry, owner) |
+| `check_bns_availability` | Check if domain is available (checks both V1 and V2) |
+| `get_bns_price` | Get registration price for domain |
+| `list_user_domains` | List domains owned by an address |
+
+> **Note:** BNS tools now support both BNS V1 (legacy) and BNS V2 (current) naming systems. Most `.btc` names are registered through BNS V2 at `api.bnsv2.com`.
+
+### Smart Contracts
+| Tool | Description |
+|------|-------------|
 | `call_contract` | Call a smart contract function |
 | `deploy_contract` | Deploy a Clarity smart contract |
 | `get_transaction_status` | Check transaction status by txid |
-| `broadcast_transaction` | Broadcast a pre-signed transaction |
+| `call_read_only_function` | Call contract read function (no signing) |
+
+### Blockchain Queries
+| Tool | Description |
+|------|-------------|
+| `get_account_info` | Get account nonce, balance, etc. |
+| `get_account_transactions` | List account transaction history |
+| `get_block_info` | Get block details |
+| `get_mempool_info` | Get pending transactions |
+| `get_contract_info` | Get contract ABI and source |
+| `get_contract_events` | Get contract event history |
+| `get_network_status` | Get network health status |
 
 ### x402 API Endpoints
 | Tool | Description |
 |------|-------------|
-| `execute_x402_endpoint` | Execute ANY x402 endpoint URL with auto-payment |
+| `list_x402_endpoints` | Discover available x402 endpoints |
+| `execute_x402_endpoint` | Execute any x402 endpoint with auto-payment |
 
-## Known API Sources
+## Usage Examples
 
-The agent can call ANY x402-compatible endpoint URL. Below are documented endpoints from known sources:
+**Check balances:**
+> "What's my STX balance?"
+> "How much sBTC do I have?"
+> "Show my USDCx balance"
 
-### x402.biwas.xyz (Default)
-- **DeFi Analytics**: Portfolio analysis, strategy builder
-- **Market Data**: Stats, gainers, losers, whale trades
-- **Wallet Analysis**: Classification, trading behavior, P&L
-- **ALEX DEX**: Swap optimizer, pool risk, arbitrage scanner
-- **Zest Protocol**: Liquidation risk, yield optimizer, position health
-- **Tokens & Pools**: Trending pools, token details, OHLCV data
+**Transfer tokens:**
+> "Send 2 STX to ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM"
+> "Transfer 0.001 sBTC to muneeb.btc"
 
-### stx402.com
-- **AI Services**: Summarize, translate, TTS, image generation, dad jokes
-- **Stacks Blockchain**: Address conversion, tx decode, contract info
-- **Cryptography**: SHA256, SHA512, Keccak256, HMAC
-- **Storage**: Key-value, SQL database, paste service
-- **Utilities**: QR codes, signature verification
-- **Infrastructure**: Locks, job queues, counters
-- **Agent Registry**: ERC-8004 agent registry and reputation
+**DeFi operations:**
+> "Get a swap quote for 100 STX to sBTC"
+> "What are the best lending rates?"
+> "Show my DeFi positions"
 
-## Configuration Options
+**NFTs:**
+> "What NFTs do I own?"
+> "Show metadata for this NFT collection"
+
+**BNS domains:**
+> "What address is satoshi.btc?"
+> "Is myname.btc available?"
+> "What domains do I own?"
+
+**Stacking:**
+> "Am I currently stacking?"
+> "What's the current PoX cycle?"
+> "How much rewards have I earned?"
+
+**x402 endpoints:**
+> "Get trending liquidity pools"
+> "Tell me a dad joke"
+> "Summarize this article: ..."
+
+## Supported Tokens
+
+Well-known tokens can be referenced by symbol:
+- **sBTC** - Native Bitcoin on Stacks
+- **USDCx** - USD Coin on Stacks
+- **ALEX** - ALEX DEX token
+- **DIKO** - Arkadiko governance token
+
+Or use any SIP-010 token by contract ID: `SP2X...::token-name`
+
+## Configuration
 
 | Environment Variable | Description | Default |
 |---------------------|-------------|---------|
@@ -130,29 +203,24 @@ The agent can call ANY x402-compatible endpoint URL. Below are documented endpoi
 | `NETWORK` | `mainnet` or `testnet` | `testnet` |
 | `API_URL` | Default x402 API base URL | `https://x402.biwas.xyz` |
 
-## How It Works
+## Architecture
 
 ```
-You → Claude Code → stx402-agent MCP Server
-                           ↓
-              ┌────────────┴────────────┐
-              ↓                         ↓
-       x402 Endpoints            Stacks Transactions
-              ↓                         ↓
-       HTTP 402 Payment          Sign & Broadcast
-       Auto-handling             via Hiro API
-              ↓                         ↓
-       x402.biwas.xyz            Stacks Blockchain
-       stx402.com
+Claude → stx402-agent MCP Server
+              ↓
+    ┌─────────┴─────────┐
+    ↓                   ↓
+Hiro Stacks API    x402 Endpoints
+    ↓                   ↓
+Stacks Blockchain  Paid API Services
 ```
 
 ## Security Notes
 
-- Your mnemonic is stored in the Claude Code configuration and passed as an environment variable
-- The mnemonic never leaves your local machine
-- Only use wallets with funds you're willing to spend on x402 payments
-- Consider using a dedicated wallet for x402 interactions
+- Your mnemonic is stored locally and never transmitted
 - Transactions are signed locally before broadcast
+- Only use wallets with funds you're willing to spend
+- Consider using a dedicated wallet for x402 interactions
 
 ## Development
 

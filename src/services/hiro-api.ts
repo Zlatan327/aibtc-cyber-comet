@@ -203,6 +203,42 @@ export interface BnsName {
   zonefile_hash: string;
 }
 
+// BNS V2 API Types
+export interface BnsV2NameData {
+  name_string: string;
+  namespace_string: string;
+  full_name: string;
+  owner: string;
+  registered_at: string;
+  renewal_height: string;
+  stx_burn: string;
+  revoked: boolean;
+  imported_at: string;
+  preordered_by: string;
+  is_valid: boolean;
+}
+
+export interface BnsV2NameResponse {
+  current_burn_block: number;
+  status: string;
+  is_managed: boolean;
+  data: BnsV2NameData;
+}
+
+export interface BnsV2NamesOwnedResponse {
+  total: number;
+  current_burn_block: number;
+  names: Array<{
+    full_name: string;
+    name_string: string;
+    namespace_string: string;
+    owner: string;
+    registered_at: number;
+    renewal_height: number;
+    stx_burn: string;
+  }>;
+}
+
 export interface FeeEstimation {
   estimated_cost: {
     read_count: number;
@@ -628,4 +664,94 @@ export async function getTransactionStatus(
 ): Promise<{ status: string; block_height?: number; tx_result?: unknown }> {
   const api = getHiroApi(network);
   return api.getTransactionStatus(txid);
+}
+
+// ============================================================================
+// BNS V2 API Service (for .btc names)
+// ============================================================================
+
+const BNSV2_API_URL = "https://api.bnsv2.com";
+
+export class BnsV2ApiService {
+  private baseUrl: string;
+
+  constructor() {
+    this.baseUrl = BNSV2_API_URL;
+  }
+
+  private async fetch<T>(path: string, options?: RequestInit): Promise<T> {
+    const url = `${this.baseUrl}${path}`;
+    const response = await fetch(url, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+      },
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`BNS V2 API error (${response.status}): ${errorText}`);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Get BNS V2 name info
+   */
+  async getNameInfo(name: string): Promise<BnsV2NameResponse> {
+    const fullName = name.endsWith(".btc") ? name : `${name}.btc`;
+    return this.fetch<BnsV2NameResponse>(`/names/${fullName}`);
+  }
+
+  /**
+   * Get names owned by an address
+   */
+  async getNamesOwnedByAddress(address: string): Promise<BnsV2NamesOwnedResponse> {
+    return this.fetch<BnsV2NamesOwnedResponse>(`/names/address/${address}/valid`);
+  }
+
+  /**
+   * Check if a name exists (is registered)
+   */
+  async nameExists(name: string): Promise<boolean> {
+    try {
+      const info = await this.getNameInfo(name);
+      return info.status === "active" && info.data.is_valid && !info.data.revoked;
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("404")) {
+        return false;
+      }
+      if (error instanceof Error && error.message.includes("Name not found")) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Resolve a name to an address
+   */
+  async resolveName(name: string): Promise<string | null> {
+    try {
+      const info = await this.getNameInfo(name);
+      if (info.status === "active" && info.data.is_valid && !info.data.revoked) {
+        return info.data.owner;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+}
+
+// BNS V2 singleton
+let _bnsV2ApiInstance: BnsV2ApiService | null = null;
+
+export function getBnsV2Api(): BnsV2ApiService {
+  if (!_bnsV2ApiInstance) {
+    _bnsV2ApiInstance = new BnsV2ApiService();
+  }
+  return _bnsV2ApiInstance;
 }
