@@ -10,6 +10,7 @@ An MCP (Model Context Protocol) server that gives Claude its own Stacks wallet t
 - **sBTC Support** - Native Bitcoin on Stacks operations
 - **Token Operations** - SIP-010 fungible token transfers and queries
 - **NFT Support** - SIP-009 NFT holdings, transfers, and metadata
+- **DeFi Trading** - ALEX DEX swaps and Zest Protocol lending/borrowing
 - **Stacking/PoX** - Stacking status and delegation
 - **BNS Domains** - .btc domain lookups and management (V1 + V2)
 - **x402 Payments** - Automatic payment handling for paid APIs
@@ -194,6 +195,24 @@ Claude's wallets are stored locally on your machine:
 | `get_transaction_status` | Check transaction status |
 | `call_read_only_function` | Call read-only function |
 
+### DeFi - ALEX DEX (Mainnet)
+| Tool | Description |
+|------|-------------|
+| `alex_list_pools` | Discover all available trading pools |
+| `alex_get_swap_quote` | Get expected output for a token swap |
+| `alex_swap` | Execute a token swap |
+| `alex_get_pool_info` | Get liquidity pool reserves |
+
+### DeFi - Zest Protocol (Mainnet)
+| Tool | Description |
+|------|-------------|
+| `zest_list_assets` | List all supported lending assets |
+| `zest_get_position` | Get user's supply/borrow position |
+| `zest_supply` | Supply assets to earn interest |
+| `zest_withdraw` | Withdraw supplied assets |
+| `zest_borrow` | Borrow against collateral |
+| `zest_repay` | Repay borrowed assets |
+
 ### Blockchain Queries
 | Tool | Description |
 |------|-------------|
@@ -234,6 +253,13 @@ Claude's wallets are stored locally on your machine:
 **BNS domains:**
 > "What address is satoshi.btc?"
 > "Is myname.btc available?"
+
+**DeFi trading (mainnet):**
+> "What pools are available on ALEX?"
+> "Get a swap quote for 1000 wSTX to sUSDT"
+> "What assets can I lend on Zest?"
+> "Supply 100 stSTX to Zest"
+> "Check my Zest position for aeUSDC"
 
 **x402 endpoints:**
 > "Get trending liquidity pools"

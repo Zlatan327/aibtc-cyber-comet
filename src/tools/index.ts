@@ -11,6 +11,7 @@ import { registerStackingTools } from "./stacking.tools.js";
 import { registerBnsTools } from "./bns.tools.js";
 import { registerQueryTools } from "./query.tools.js";
 import { registerEndpointTools } from "./endpoint.tools.js";
+import { registerDefiTools } from "./defi.tools.js";
 
 /**
  * Register all tools with the MCP server
@@ -48,4 +49,7 @@ export function registerAllTools(server: McpServer): void {
 
   // x402 Endpoints
   registerEndpointTools(server);
+
+  // DeFi (ALEX DEX, Zest Protocol)
+  registerDefiTools(server);
 }

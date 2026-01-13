@@ -66,9 +66,11 @@ stx402-agent MCP Server (src/index.ts)
 - `src/api.ts` - Axios client with x402-stacks payment interceptor (supports multiple API sources)
 - `src/wallet.ts` - Wallet operations and transaction signing using @stacks/transactions
 - `src/services/wallet-manager.ts` - Managed wallet creation, encryption, and session management
+- `src/services/defi.service.ts` - ALEX DEX and Zest Protocol integrations
 - `src/endpoints/registry.ts` - Known x402 endpoint registry from both API sources
 - `src/services/bns.service.ts` - BNS name resolution (supports both V1 and V2)
 - `src/services/hiro-api.ts` - Hiro API client + BNS V2 API client
+- `src/config/contracts.ts` - Contract addresses for sBTC, ALEX, Zest, and other protocols
 
 ### BNS V1 vs V2
 
@@ -160,6 +162,22 @@ Add to your Claude Code MCP settings:
 ### x402 API Endpoints
 - `execute_x402_endpoint` - Execute ANY x402 endpoint URL with automatic payment handling. Can use full URL or path+apiUrl.
 
+### DeFi - ALEX DEX (Mainnet Only)
+- `alex_list_pools` - **Start here!** Discover all available trading pools
+- `alex_get_swap_quote` - Get expected output for a token swap
+- `alex_swap` - Execute a token swap on ALEX AMM
+- `alex_get_pool_info` - Get liquidity pool reserves and details
+
+### DeFi - Zest Protocol (Mainnet Only)
+- `zest_list_assets` - **Start here!** Lists all supported assets dynamically from the contract
+- `zest_get_position` - Get user's lending position (supplied/borrowed amounts)
+- `zest_supply` - Supply assets to earn interest
+- `zest_withdraw` - Withdraw supplied assets
+- `zest_borrow` - Borrow assets against collateral
+- `zest_repay` - Repay borrowed assets
+
+All Zest tools accept asset symbols (e.g., 'stSTX', 'aeUSDC') or full contract IDs.
+
 ## Agent Behavior Guidelines
 
 When a user asks for something:
@@ -175,9 +193,12 @@ When a user asks for something:
 |---------|--------|
 | "Send 2 STX to ST1..." | `transfer_stx` with amount "2000000" |
 | "What are trending pools?" | `execute_x402_endpoint` with path="/api/pools/trending" |
-| "Call https://example.com/api/data" | `execute_x402_endpoint` with url="https://example.com/api/data" |
+| "What pools can I trade on ALEX?" | `alex_list_pools` to discover available pairs |
+| "Swap 100 wSTX for sUSDT" | `alex_swap` with tokenX=wSTX, tokenY=sUSDT |
+| "How much sUSDT for 10 wSTX?" | `alex_get_swap_quote` for pricing |
+| "Supply 1000 stSTX to Zest" | `zest_supply` to earn lending interest |
+| "Check my Zest position" | `zest_get_position` for supplied/borrowed |
 | "Tell me a dad joke" | `execute_x402_endpoint` with url="https://stx402.com/api/ai/dad-joke" |
-| "Use this endpoint: https://myapi.com/paid" | `execute_x402_endpoint` with url="https://myapi.com/paid" |
 
 ### Endpoint Categories
 
