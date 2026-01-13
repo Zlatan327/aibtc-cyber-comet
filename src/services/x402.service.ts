@@ -4,6 +4,7 @@ import { withPaymentInterceptor } from "x402-stacks";
 import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
 import { NETWORK, API_URL, type Network } from "../config/networks.js";
 import type { Account } from "../transactions/builder.js";
+import { getWalletManager } from "./wallet-manager.js";
 
 // Cache clients by base URL
 const clientCache: Map<string, AxiosInstance> = new Map();
@@ -42,12 +43,8 @@ export async function createApiClient(baseUrl?: string): Promise<AxiosInstance> 
     return cached;
   }
 
-  const mnemonic = process.env.CLIENT_MNEMONIC || "";
-  if (!mnemonic) {
-    throw new Error("CLIENT_MNEMONIC is required in environment variables");
-  }
-
-  const account = await mnemonicToAccount(mnemonic, NETWORK);
+  // Get account (from managed wallet or env mnemonic)
+  const account = await getAccount();
   const axiosInstance = axios.create({
     baseURL: url,
     timeout: 60000,
@@ -100,24 +97,48 @@ export async function createApiClient(baseUrl?: string): Promise<AxiosInstance> 
 }
 
 /**
- * Get wallet address from mnemonic
+ * Get wallet address - checks managed wallet first, then env mnemonic
  */
 export async function getWalletAddress(): Promise<string> {
+  // Check managed wallet session first
+  const walletManager = getWalletManager();
+  const sessionAccount = walletManager.getActiveAccount();
+
+  if (sessionAccount) {
+    return sessionAccount.address;
+  }
+
+  // Fall back to environment mnemonic
   const mnemonic = process.env.CLIENT_MNEMONIC || "";
   if (!mnemonic) {
-    throw new Error("CLIENT_MNEMONIC is required in environment variables");
+    throw new Error(
+      "No wallet available. Either unlock a managed wallet (wallet_unlock) " +
+        "or set CLIENT_MNEMONIC environment variable."
+    );
   }
   const account = await mnemonicToAccount(mnemonic, NETWORK);
   return account.address;
 }
 
 /**
- * Get account from mnemonic
+ * Get account - checks managed wallet first, then env mnemonic
  */
 export async function getAccount(): Promise<Account> {
+  // Check managed wallet session first
+  const walletManager = getWalletManager();
+  const sessionAccount = walletManager.getActiveAccount();
+
+  if (sessionAccount) {
+    return sessionAccount;
+  }
+
+  // Fall back to environment mnemonic
   const mnemonic = process.env.CLIENT_MNEMONIC || "";
   if (!mnemonic) {
-    throw new Error("CLIENT_MNEMONIC is required in environment variables");
+    throw new Error(
+      "No wallet available. Either unlock a managed wallet (wallet_unlock) " +
+        "or set CLIENT_MNEMONIC environment variable."
+    );
   }
   return mnemonicToAccount(mnemonic, NETWORK);
 }
