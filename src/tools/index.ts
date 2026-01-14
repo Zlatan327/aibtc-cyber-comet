@@ -12,6 +12,8 @@ import { registerBnsTools } from "./bns.tools.js";
 import { registerQueryTools } from "./query.tools.js";
 import { registerEndpointTools } from "./endpoint.tools.js";
 import { registerDefiTools } from "./defi.tools.js";
+import { registerScaffoldTools } from "./scaffold.tools.js";
+import { registerOpenRouterTools } from "./openrouter.tools.js";
 
 /**
  * Register all tools with the MCP server
@@ -52,4 +54,10 @@ export function registerAllTools(server: McpServer): void {
 
   // DeFi (ALEX DEX, Zest Protocol)
   registerDefiTools(server);
+
+  // Scaffolding (generate x402 endpoint projects)
+  registerScaffoldTools(server);
+
+  // OpenRouter AI (call AI models directly)
+  registerOpenRouterTools(server);
 }
