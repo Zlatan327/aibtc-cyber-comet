@@ -196,14 +196,20 @@ Claude's wallets are stored locally on your machine:
 | `call_read_only_function` | Call read-only function |
 
 ### DeFi - ALEX DEX (Mainnet)
+
+Uses the official `alex-sdk` for swap operations. Supports simple token symbols like "STX", "ALEX".
+
 | Tool | Description |
 |------|-------------|
 | `alex_list_pools` | Discover all available trading pools |
 | `alex_get_swap_quote` | Get expected output for a token swap |
-| `alex_swap` | Execute a token swap |
+| `alex_swap` | Execute a token swap (SDK handles routing) |
 | `alex_get_pool_info` | Get liquidity pool reserves |
 
 ### DeFi - Zest Protocol (Mainnet)
+
+Supports 10 assets: sBTC, aeUSDC, stSTX, wSTX, USDH, sUSDT, USDA, DIKO, ALEX, stSTX-BTC
+
 | Tool | Description |
 |------|-------------|
 | `zest_list_assets` | List all supported lending assets |
@@ -256,10 +262,12 @@ Claude's wallets are stored locally on your machine:
 
 **DeFi trading (mainnet):**
 > "What pools are available on ALEX?"
-> "Get a swap quote for 1000 wSTX to sUSDT"
+> "Swap 0.1 STX for ALEX"
+> "Get a quote for 100 STX to ALEX"
 > "What assets can I lend on Zest?"
 > "Supply 100 stSTX to Zest"
-> "Check my Zest position for aeUSDC"
+> "Borrow 50 aeUSDC from Zest"
+> "Check my Zest position"
 
 **x402 endpoints:**
 > "Get trending liquidity pools"
@@ -270,6 +278,12 @@ Claude's wallets are stored locally on your machine:
 Well-known tokens can be referenced by symbol:
 - **sBTC** - Native Bitcoin on Stacks
 - **USDCx** - USD Coin on Stacks
+- **ALEX** - ALEX governance token
+- **wSTX** - Wrapped STX
+
+**ALEX DEX tokens:** STX, ALEX, and any token from `alex_list_pools`
+
+**Zest Protocol assets:** sBTC, aeUSDC, stSTX, wSTX, USDH, sUSDT, USDA, DIKO, ALEX, stSTX-BTC
 
 Or use any SIP-010 token by contract ID: `SP2X...::token-name`
 
