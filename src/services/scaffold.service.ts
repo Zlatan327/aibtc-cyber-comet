@@ -68,6 +68,8 @@ function generateEndpointCode(endpoints: EndpointConfig[]): string {
   return endpoints
     .map((ep) => {
       const amountSmallest = toSmallestUnit(ep.amount, ep.tokenType);
+      // Generate real example logic based on endpoint characteristics
+      const exampleLogic = generateExampleLogic(ep);
       return `
 // ${ep.description}
 app.${ep.method.toLowerCase()}('${ep.path}',
@@ -80,16 +82,58 @@ app.${ep.method.toLowerCase()}('${ep.path}',
   }),
   async (c) => {
     const payment = c.get('payment');
-    // TODO: Add your endpoint logic here
-    return c.json({
-      message: '${ep.description}',
-      txId: payment?.txId,
-      timestamp: new Date().toISOString(),
-    });
+${exampleLogic}
   }
 );`;
     })
     .join("\n");
+}
+
+/**
+ * Generate real example logic for endpoints based on their configuration.
+ * This replaces placeholder/TODO code with working examples.
+ */
+function generateExampleLogic(ep: EndpointConfig): string {
+  if (ep.method === "POST") {
+    return `
+    // Parse request body
+    const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+
+    // Your business logic here - this example echoes the request
+    const result = {
+      received: body,
+      processedAt: new Date().toISOString(),
+    };
+
+    return c.json({
+      success: true,
+      data: result,
+      payment: {
+        txId: payment?.txId,
+        sender: payment?.sender,
+        amount: payment?.amount?.toString(),
+      },
+    });`;
+  }
+
+  // GET endpoint - return example data
+  return `
+    // Your business logic here - this example returns sample data
+    const data = {
+      id: crypto.randomUUID(),
+      description: '${ep.description}',
+      generatedAt: new Date().toISOString(),
+    };
+
+    return c.json({
+      success: true,
+      data,
+      payment: {
+        txId: payment?.txId,
+        sender: payment?.sender,
+        amount: payment?.amount?.toString(),
+      },
+    });`;
 }
 
 /**
@@ -143,6 +187,28 @@ type Variables = {
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 app.use('*', cors());
+
+// Startup validation - fail fast if required secrets are missing
+app.use('*', async (c, next) => {
+  const missingSecrets: string[] = [];
+
+  if (!c.env.RECIPIENT_ADDRESS) {
+    missingSecrets.push('RECIPIENT_ADDRESS');
+  }
+  if (!c.env.FACILITATOR_URL) {
+    missingSecrets.push('FACILITATOR_URL');
+  }
+
+  if (missingSecrets.length > 0) {
+    return c.json({
+      error: 'Server configuration error',
+      message: \`Missing required secrets: \${missingSecrets.join(', ')}\`,
+      hint: missingSecrets.map(s => \`Run: npm run wrangler -- secret put \${s}\`).join(' && '),
+    }, 503);
+  }
+
+  await next();
+});
 
 // Health check (free)
 app.get('/health', (c) => {
@@ -698,6 +764,31 @@ type Variables = {
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
 app.use('*', cors());
+
+// Startup validation - fail fast if required secrets are missing
+app.use('*', async (c, next) => {
+  const missingSecrets: string[] = [];
+
+  if (!c.env.RECIPIENT_ADDRESS) {
+    missingSecrets.push('RECIPIENT_ADDRESS');
+  }
+  if (!c.env.FACILITATOR_URL) {
+    missingSecrets.push('FACILITATOR_URL');
+  }
+  if (!c.env.OPENROUTER_API_KEY) {
+    missingSecrets.push('OPENROUTER_API_KEY');
+  }
+
+  if (missingSecrets.length > 0) {
+    return c.json({
+      error: 'Server configuration error',
+      message: \`Missing required secrets: \${missingSecrets.join(', ')}\`,
+      hint: missingSecrets.map(s => \`Run: npm run wrangler -- secret put \${s}\`).join(' && '),
+    }, 503);
+  }
+
+  await next();
+});
 
 // Health check (free)
 app.get('/health', (c) => {
