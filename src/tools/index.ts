@@ -13,6 +13,8 @@ import { registerQueryTools } from "./query.tools.js";
 import { registerEndpointTools } from "./endpoint.tools.js";
 import { registerDefiTools } from "./defi.tools.js";
 import { registerBitflowTools } from "./bitflow.tools.js";
+import { registerScaffoldTools } from "./scaffold.tools.js";
+import { registerOpenRouterTools } from "./openrouter.tools.js";
 
 /**
  * Register all tools with the MCP server
@@ -56,4 +58,10 @@ export function registerAllTools(server: McpServer): void {
 
   // Bitflow DEX
   registerBitflowTools(server);
+
+  // Scaffolding (generate x402 endpoint projects)
+  registerScaffoldTools(server);
+
+  // OpenRouter AI (call AI models directly)
+  registerOpenRouterTools(server);
 }

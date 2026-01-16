@@ -72,6 +72,7 @@ stx402-agent MCP Server (src/index.ts)
 - `src/services/bns.service.ts` - BNS name resolution (supports both V1 and V2)
 - `src/services/hiro-api.ts` - Hiro API client + BNS V2 API client
 - `src/config/contracts.ts` - Contract addresses and Zest asset configuration (LP tokens, oracles, decimals)
+- `src/services/scaffold.service.ts` - x402 endpoint project scaffolding for Cloudflare Workers
 
 ### BNS V1 vs V2
 
@@ -156,6 +157,136 @@ This automatically configures `~/.claude.json` with the MCP server. The `@latest
 
 ### x402 API Endpoints
 - `execute_x402_endpoint` - Execute ANY x402 endpoint URL with automatic payment handling. Can use full URL or path+apiUrl.
+
+### x402 Endpoint Scaffolding
+- `scaffold_x402_endpoint` - Generate a complete Cloudflare Worker project with x402 payment integration
+
+**Parameters:**
+| Parameter | Required | Description |
+|-----------|----------|-------------|
+| `outputDir` | Yes | Absolute path to output directory |
+| `projectName` | Yes | Project name (lowercase, hyphens) |
+| `endpoints` | Yes | Array of endpoint configs |
+| `recipientAddress` | Yes | Stacks address to receive payments |
+| `network` | No | "mainnet" or "testnet" (default: testnet) |
+| `facilitatorUrl` | No | Custom facilitator URL |
+
+**Endpoint Config:**
+```typescript
+{
+  path: "/api/premium",       // Endpoint path
+  method: "GET" | "POST",     // HTTP method
+  description: "...",         // For docs
+  amount: "0.001",            // Payment amount
+  tokenType: "STX" | "sBTC" | "USDCx"
+}
+```
+
+**Generated Project Structure:**
+```
+{projectName}/
+├── src/
+│   ├── index.ts              # Hono app with routes
+│   └── x402-middleware.ts    # Payment verification
+├── wrangler.jsonc            # Cloudflare config
+├── package.json
+├── tsconfig.json
+├── .env.example
+├── .gitignore
+└── README.md
+```
+
+**Example:**
+```
+scaffold_x402_endpoint({
+  outputDir: "/Users/me/projects",
+  projectName: "my-paid-api",
+  endpoints: [{
+    path: "/api/joke",
+    method: "GET",
+    description: "Generate a joke",
+    amount: "0.001",
+    tokenType: "STX"
+  }],
+  recipientAddress: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
+  network: "testnet"
+})
+```
+
+### x402 AI Endpoint Scaffolding (OpenRouter)
+- `scaffold_x402_ai_endpoint` - Generate x402 endpoint project with OpenRouter AI integration
+
+**AI Types:**
+| Type | Description |
+|------|-------------|
+| `chat` | General chat/Q&A endpoint |
+| `completion` | Text completion/continuation |
+| `summarize` | Summarize provided text |
+| `translate` | Translate text to target language |
+| `custom` | Custom system prompt |
+
+**AI Endpoint Config:**
+```typescript
+{
+  path: "/api/chat",
+  description: "Chat with AI",
+  amount: "0.01",
+  tokenType: "STX" | "sBTC" | "USDCx",
+  aiType: "chat" | "completion" | "summarize" | "translate" | "custom",
+  model?: "anthropic/claude-3-haiku",  // Optional, uses defaultModel
+  systemPrompt?: "You are..."          // Optional, for custom prompts
+}
+```
+
+**Example:**
+```
+scaffold_x402_ai_endpoint({
+  outputDir: "/Users/me/projects",
+  projectName: "my-ai-api",
+  endpoints: [{
+    path: "/api/chat",
+    description: "Chat with AI",
+    amount: "0.01",
+    tokenType: "STX",
+    aiType: "chat"
+  }, {
+    path: "/api/summarize",
+    description: "Summarize text",
+    amount: "0.005",
+    tokenType: "STX",
+    aiType: "summarize"
+  }],
+  recipientAddress: "ST1PQHQKV0RJXZFY1DGX8MNSNYVE3VGZJSRTPGZGM",
+  defaultModel: "anthropic/claude-3-haiku"
+})
+```
+
+**Popular OpenRouter Models:**
+- `anthropic/claude-sonnet-4.5` - Best overall, 1M context
+- `anthropic/claude-3.5-haiku` - Fast and affordable
+- `openai/gpt-4o-mini` - Fast and cheap
+- `google/gemini-2.5-flash` - 1M context, fast
+- `x-ai/grok-4` - xAI flagship, real-time knowledge
+- `deepseek/deepseek-r1` - Excellent reasoning
+- `meta-llama/llama-3.3-70b-instruct` - Best open source value
+
+### OpenRouter Integration (AI Features)
+
+Tools for implementing AI features using OpenRouter in any project:
+
+- `openrouter_integration_guide` - Get code examples and patterns for integrating OpenRouter
+- `openrouter_models` - List available models with capabilities
+
+**Usage:** When implementing AI features:
+1. Call `openrouter_integration_guide` to get code examples for the target environment
+2. If documentation is incomplete or outdated, search the web for latest OpenRouter docs
+3. Use the returned code templates to implement the feature
+
+**Example Workflow:**
+1. User: "Add AI chat to my Cloudflare Worker"
+2. Claude calls `openrouter_integration_guide` with `environment: "cloudflare-worker"`
+3. If needed, Claude searches web for latest OpenRouter API docs
+4. Claude implements the feature using the templates
 
 ### DeFi - ALEX DEX (Mainnet Only)
 
@@ -280,6 +411,8 @@ When a user asks for something:
 | "Swap tokens on Bitflow" | `bitflow_swap` with tokenX and tokenY contract IDs |
 | "Get a quote on Bitflow" | `bitflow_get_quote` for expected output |
 | "Tell me a dad joke" | `execute_x402_endpoint` with url="https://stx402.com/api/ai/dad-joke" |
+| "Create a paid API endpoint for jokes" | `scaffold_x402_endpoint` with endpoint config |
+| "Create an AI chatbot API that charges per request" | `scaffold_x402_ai_endpoint` with chat aiType |
 
 ### Endpoint Categories
 
