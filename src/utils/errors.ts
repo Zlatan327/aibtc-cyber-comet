@@ -1,21 +1,21 @@
 /**
- * Base error class for stx402-agent
+ * Base error class for aibtc-mcp-server
  */
-export class Stx402Error extends Error {
+export class AibtcError extends Error {
   constructor(
     message: string,
     public readonly code: string,
     public readonly details?: unknown
   ) {
     super(message);
-    this.name = "Stx402Error";
+    this.name = "AibtcError";
   }
 }
 
 /**
  * Error for invalid configuration
  */
-export class ConfigError extends Stx402Error {
+export class ConfigError extends AibtcError {
   constructor(message: string, details?: unknown) {
     super(message, "CONFIG_ERROR", details);
     this.name = "ConfigError";
@@ -25,7 +25,7 @@ export class ConfigError extends Stx402Error {
 /**
  * Error for transaction failures
  */
-export class TransactionError extends Stx402Error {
+export class TransactionError extends AibtcError {
   constructor(message: string, public readonly txid?: string, details?: unknown) {
     super(message, "TRANSACTION_ERROR", details);
     this.name = "TransactionError";
@@ -35,7 +35,7 @@ export class TransactionError extends Stx402Error {
 /**
  * Error for API failures
  */
-export class ApiError extends Stx402Error {
+export class ApiError extends AibtcError {
   constructor(
     message: string,
     public readonly statusCode?: number,
@@ -49,7 +49,7 @@ export class ApiError extends Stx402Error {
 /**
  * Error for contract call failures
  */
-export class ContractError extends Stx402Error {
+export class ContractError extends AibtcError {
   constructor(
     message: string,
     public readonly contractId?: string,
@@ -63,7 +63,7 @@ export class ContractError extends Stx402Error {
 /**
  * Base error for wallet operations
  */
-export class WalletError extends Stx402Error {
+export class WalletError extends AibtcError {
   constructor(message: string, details?: unknown) {
     super(message, "WALLET_ERROR", details);
     this.name = "WalletError";
@@ -114,7 +114,7 @@ export class InvalidMnemonicError extends WalletError {
  * Format error for tool response
  */
 export function formatError(error: unknown): { message: string; code?: string; details?: unknown } {
-  if (error instanceof Stx402Error) {
+  if (error instanceof AibtcError) {
     return {
       message: error.message,
       code: error.code,

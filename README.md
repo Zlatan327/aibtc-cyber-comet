@@ -1,4 +1,4 @@
-# stx402-agent
+# @aibtc/mcp-server
 
 An MCP (Model Context Protocol) server that gives Claude its own Stacks wallet to interact with the blockchain and x402 paid API endpoints.
 
@@ -20,21 +20,21 @@ An MCP (Model Context Protocol) server that gives Claude its own Stacks wallet t
 ### One-Command Install
 
 ```bash
-npx stx402-agent@latest --install
+npx @aibtc/mcp-server@latest --install
 ```
 
 That's it! This automatically configures Claude Code. Restart your terminal and start chatting.
 
 **For mainnet:**
 ```bash
-npx stx402-agent@latest --install --mainnet
+npx @aibtc/mcp-server@latest --install --mainnet
 ```
 
-> **Why npx?** Using `npx stx402-agent@latest` ensures you always get the newest version automatically. Global installs (`npm install -g`) won't auto-update.
+> **Why npx?** Using `npx @aibtc/mcp-server@latest` ensures you always get the newest version automatically. Global installs (`npm install -g`) won't auto-update.
 
 ## Giving Claude a Wallet
 
-When you first use stx402-agent, Claude doesn't have a wallet. Here's the smooth onboarding flow:
+When you first use @aibtc/mcp-server, Claude doesn't have a wallet. Here's the smooth onboarding flow:
 
 ### Example Conversation
 
@@ -84,7 +84,7 @@ Claude: Done! I've sent 10 STX to ST2DEF...
 Claude's wallets are stored locally on your machine:
 
 ```
-~/.stx402/
+~/.aibtc/
 ├── wallets.json       # Wallet index (names, addresses - no secrets)
 ├── config.json        # Active wallet, settings
 └── wallets/
@@ -284,9 +284,9 @@ Or use any SIP-010 token by contract ID: `SP2X...::token-name`
 ## Architecture
 
 ```
-You ←→ Claude ←→ stx402-agent MCP Server
+You ←→ Claude ←→ aibtc-mcp-server
                         ↓
-              Claude's Wallet (~/.stx402/)
+              Claude's Wallet (~/.aibtc/)
                         ↓
               ┌─────────┴─────────┐
               ↓                   ↓
@@ -311,9 +311,9 @@ For automated setups where Claude needs immediate wallet access, set the `CLIENT
 ```json
 {
   "mcpServers": {
-    "stx402": {
+    "aibtc": {
       "command": "npx",
-      "args": ["stx402-agent@latest"],
+      "args": ["@aibtc/mcp-server@latest"],
       "env": {
         "CLIENT_MNEMONIC": "your twenty four word mnemonic phrase",
         "NETWORK": "testnet"
@@ -328,8 +328,8 @@ This bypasses the wallet creation flow - Claude has immediate access to transact
 ## Development
 
 ```bash
-git clone https://github.com/biwasxyz/stx402-agent.git
-cd stx402-agent
+git clone https://github.com/aibtcdev/aibtc-mcp-server.git
+cd aibtc-mcp-server
 npm install
 npm run build
 npm run dev       # Run with tsx (development)

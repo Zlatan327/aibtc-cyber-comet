@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-stx402-agent is an MCP (Model Context Protocol) server that enables Claude to:
+aibtc-mcp-server is an MCP (Model Context Protocol) server that enables Claude to:
 1. **Discover and execute x402 API endpoints** - Paid API calls for DeFi analytics, AI services, market data
 2. **Execute Stacks blockchain transactions** - Transfer STX, call smart contracts, deploy contracts
 
@@ -66,7 +66,7 @@ This triggers GitHub Actions to automatically:
 ```
 Claude Code
     ↓ (MCP stdio transport)
-stx402-agent MCP Server (src/index.ts)
+aibtc-mcp-server MCP Server (src/index.ts)
     ↓
 ┌─────────────────────────────────────────────────────────┐
 │  x402 Endpoints                          Stacks TX      │
@@ -122,9 +122,9 @@ Set environment variables in `.env`:
 
 ### Wallet Storage
 
-Managed wallets are stored encrypted in `~/.stx402/`:
+Managed wallets are stored encrypted in `~/.aibtc/`:
 ```
-~/.stx402/
+~/.aibtc/
 ├── wallets.json       # Wallet index (metadata only)
 ├── config.json        # Active wallet, settings
 └── wallets/
@@ -136,12 +136,12 @@ Managed wallets are stored encrypted in `~/.stx402/`:
 
 **One-command install:**
 ```bash
-npx stx402-agent@latest --install
+npx @aibtc/mcp-server@latest --install
 ```
 
 This automatically configures `~/.claude.json` with the MCP server. The `@latest` tag ensures users always get the newest features.
 
-**For mainnet:** `npx stx402-agent@latest --install --mainnet`
+**For mainnet:** `npx @aibtc/mcp-server@latest --install --mainnet`
 
 **Note:** `CLIENT_MNEMONIC` is optional. Users can either:
 1. **Managed wallets (recommended)**: Use `wallet_create` or `wallet_import` to generate/import wallets with password protection

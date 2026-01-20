@@ -1,11 +1,11 @@
 {
-  "name": "stx402-agent",
-  "version": "2.6.3",
+  "name": "@aibtc/mcp-server",
+  "version": "1.0.0",
   "description": "Claude Code MCP server for x402 endpoint discovery and execution with Stacks wallet integration",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "stx402-agent": "./dist/index.js"
+    "aibtc-mcp-server": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -26,14 +26,15 @@
     "stacks",
     "blockchain",
     "crypto",
-    "payments"
+    "payments",
+    "aibtc"
   ],
-  "author": "biwas",
+  "author": "aibtcdev",
   "repository": {
     "type": "git",
-    "url": "https://github.com/biwasxyz/stx402-agent.git"
+    "url": "https://github.com/aibtcdev/aibtc-mcp-server.git"
   },
-  "homepage": "https://github.com/biwasxyz/stx402-agent#readme",
+  "homepage": "https://github.com/aibtcdev/aibtc-mcp-server#readme",
   "license": "MIT",
   "dependencies": {
     "@bitflowlabs/core-sdk": "^2.4.0",
