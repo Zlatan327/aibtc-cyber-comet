@@ -1,4 +1,5 @@
 import fs from "fs/promises";
+import { existsSync, renameSync } from "fs";
 import path from "path";
 import os from "os";
 import type { EncryptedData } from "./encryption.js";
@@ -6,11 +7,30 @@ import type { Network } from "../config/networks.js";
 
 /**
  * Storage directory location
+ * Migrated from ~/.stx402/ to ~/.aibtc/ in v1.0.0
  */
-const STORAGE_DIR = path.join(os.homedir(), ".stx402");
+const OLD_STORAGE_DIR = path.join(os.homedir(), ".stx402");
+const STORAGE_DIR = path.join(os.homedir(), ".aibtc");
 const WALLETS_DIR = path.join(STORAGE_DIR, "wallets");
 const WALLET_INDEX_FILE = path.join(STORAGE_DIR, "wallets.json");
 const CONFIG_FILE = path.join(STORAGE_DIR, "config.json");
+
+/**
+ * Migrate storage from ~/.stx402/ to ~/.aibtc/ (one-time migration)
+ */
+function migrateStorageDirectory(): void {
+  if (existsSync(OLD_STORAGE_DIR) && !existsSync(STORAGE_DIR)) {
+    try {
+      renameSync(OLD_STORAGE_DIR, STORAGE_DIR);
+      console.error(`Migrated wallet storage from ${OLD_STORAGE_DIR} to ${STORAGE_DIR}`);
+    } catch (error) {
+      console.error(`Failed to migrate storage directory: ${error}`);
+    }
+  }
+}
+
+// Run migration on module load
+migrateStorageDirectory();
 
 /**
  * 

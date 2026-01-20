@@ -582,7 +582,7 @@ curl http://localhost:8787${endpoints[0]?.path || "/api/endpoint"}
 
 ---
 
-Generated with stx402-agent scaffold tool.
+Generated with @aibtc/mcp-server scaffold tool.
 `;
 }
 
@@ -1081,7 +1081,7 @@ See all models: https://openrouter.ai/models
 
 ---
 
-Generated with stx402-agent scaffold tool.
+Generated with @aibtc/mcp-server scaffold tool.
 `;
 }
 

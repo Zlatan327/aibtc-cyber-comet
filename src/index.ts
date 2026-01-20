@@ -17,7 +17,7 @@ async function installToClaudeCode(): Promise<void> {
   const claudeConfigPath = path.join(os.homedir(), ".claude.json");
   const network = process.argv.includes("--mainnet") ? "mainnet" : "testnet";
 
-  console.log("🔧 Installing stx402-agent to Claude Code...\n");
+  console.log("🔧 Installing @aibtc/mcp-server to Claude Code...\n");
 
   // Read existing config or create new one
   let config: { mcpServers?: Record<string, unknown> } = {};
@@ -33,9 +33,9 @@ async function installToClaudeCode(): Promise<void> {
     config.mcpServers = {};
   }
 
-  config.mcpServers["stx402"] = {
+  config.mcpServers["aibtc"] = {
     command: "npx",
-    args: ["stx402-agent@latest"],
+    args: ["@aibtc/mcp-server@latest"],
     env: {
       NETWORK: network,
     },
@@ -68,8 +68,8 @@ if (process.argv.includes("--install") || process.argv.includes("install")) {
 } else {
   // Normal MCP server mode
   const server = new McpServer({
-    name: "stx402-agent",
-    version: "2.6.0",
+    name: "aibtc-mcp-server",
+    version: "1.0.0",
   });
 
   // Register all tools from the modular registry
@@ -78,7 +78,7 @@ if (process.argv.includes("--install") || process.argv.includes("install")) {
   async function main() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
-    console.error("stx402-agent MCP server running on stdio");
+    console.error("aibtc-mcp-server running on stdio");
     console.error(`Network: ${NETWORK}`);
     console.error(`API URL: ${API_URL}`);
   }

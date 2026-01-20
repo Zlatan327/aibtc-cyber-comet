@@ -15,7 +15,7 @@ export function registerWalletManagementTools(server: McpServer): void {
     "wallet_create",
     {
       description: `Create a new wallet for the agent with a generated BIP39 24-word mnemonic.
-The wallet is encrypted locally and stored in ~/.stx402/.
+The wallet is encrypted locally and stored in ~/.aibtc/.
 IMPORTANT: Save the mnemonic securely - it will only be shown once!`,
       inputSchema: {
         name: z.string().describe("Name for the wallet (e.g., 'main', 'trading')"),
@@ -59,7 +59,7 @@ IMPORTANT: Save the mnemonic securely - it will only be shown once!`,
     "wallet_import",
     {
       description: `Import an existing wallet for the agent using a BIP39 mnemonic phrase.
-The wallet is encrypted locally and stored in ~/.stx402/.`,
+The wallet is encrypted locally and stored in ~/.aibtc/.`,
       inputSchema: {
         name: z.string().describe("Name for the wallet"),
         mnemonic: z.string().describe("24-word BIP39 mnemonic phrase"),

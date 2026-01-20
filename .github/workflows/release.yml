@@ -40,13 +40,13 @@ jobs:
         with:
           node-version: '20'
           registry-url: 'https://npm.pkg.github.com'
-          scope: '@biwasxyz'
+          scope: '@aibtcdev'
 
       - name: Publish to GitHub Packages
         run: |
-          npm pkg set name="@biwasxyz/stx402-agent"
+          npm pkg set name="@aibtcdev/aibtc-mcp-server"
           npm publish --access public
-          npm pkg set name="stx402-agent"
+          npm pkg set name="@aibtc/mcp-server"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -83,7 +83,7 @@ jobs:
           echo "## Installation" >> release_notes.md
           echo "" >> release_notes.md
           echo '```bash' >> release_notes.md
-          echo "npx stx402-agent@latest --install" >> release_notes.md
+          echo "npx @aibtc/mcp-server@latest --install" >> release_notes.md
           echo '```' >> release_notes.md
           echo "" >> release_notes.md
           echo "**Full Changelog**: https://github.com/${{ github.repository }}/compare/${PREV_TAG}...${VERSION}" >> release_notes.md
