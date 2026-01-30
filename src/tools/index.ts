@@ -17,6 +17,7 @@ import { registerDefiTools } from "./defi.tools.js";
 import { registerScaffoldTools } from "./scaffold.tools.js";
 import { registerOpenRouterTools } from "./openrouter.tools.js";
 import { registerYieldHunterTools } from "./yield-hunter.tools.js";
+import { registerPillarTools } from "./pillar.tools.js";
 
 /**
  * Register all tools with the MCP server
@@ -69,4 +70,7 @@ export function registerAllTools(server: McpServer): void {
 
   // Yield Hunter (autonomous sBTC yield farming)
   registerYieldHunterTools(server);
+
+  // Pillar (handoff to frontend + polling)
+  registerPillarTools(server);
 }
