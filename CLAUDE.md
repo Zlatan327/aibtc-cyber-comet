@@ -87,13 +87,14 @@ aibtc-mcp-server MCP Server (src/index.ts)
 - `src/services/wallet-manager.ts` - Managed wallet creation, encryption, and session management
 - `src/services/defi.service.ts` - ALEX DEX (via alex-sdk) and Zest Protocol integrations
 - `src/services/bitflow.service.ts` - Bitflow DEX integration (via @bitflowlabs/core-sdk)
-- `src/services/mempool-api.ts` - mempool.space API client for Bitcoin UTXO and fee data
+- `src/services/mempool-api.ts` - mempool.space API client for Bitcoin UTXO, fee, and broadcast
+- `src/transactions/bitcoin-builder.ts` - Bitcoin transaction building and signing (P2WPKH)
 - `src/endpoints/registry.ts` - Known x402 endpoint registry from both API sources
 - `src/services/bns.service.ts` - BNS name resolution (supports both V1 and V2)
 - `src/services/hiro-api.ts` - Hiro API client + BNS V2 API client
 - `src/config/contracts.ts` - Contract addresses and Zest asset configuration (LP tokens, oracles, decimals)
 - `src/services/scaffold.service.ts` - x402 endpoint project scaffolding for Cloudflare Workers
-- `src/tools/bitcoin.tools.ts` - Bitcoin L1 read-only tools (balance, fees, UTXOs)
+- `src/tools/bitcoin.tools.ts` - Bitcoin L1 tools (balance, fees, UTXOs, transfer)
 - `src/tools/pillar.tools.ts` - Pillar smart wallet tools (handoff model)
 - `src/services/pillar-api.service.ts` - Pillar API client
 - `src/config/pillar.ts` - Pillar configuration (API URL, API key)
@@ -172,18 +173,27 @@ This automatically configures `~/.claude.json` with the MCP server. The `@latest
 - `wallet_export` - Export mnemonic (with security warning)
 - `wallet_status` - Get current wallet/session status
 
-### Bitcoin L1 (Read-Only)
+### Bitcoin L1 Transactions
 
-Tools for querying Bitcoin L1 blockchain data via mempool.space API:
+Tools for Bitcoin L1 blockchain operations via mempool.space API:
 
+**Read Operations:**
 - `get_btc_balance` - Get BTC balance for any Bitcoin address (total, confirmed, unconfirmed)
 - `get_btc_fees` - Get current fee estimates (fast ~10min, medium ~30min, slow ~1hr) in sat/vB
 - `get_btc_utxos` - List UTXOs for a Bitcoin address (useful for debugging/transparency)
 
+**Write Operations:**
+- `transfer_btc` - Transfer BTC to a recipient address (requires unlocked wallet)
+  - `recipient`: Bitcoin address (bc1... for mainnet, tb1... for testnet)
+  - `amount`: Amount in satoshis (1 BTC = 100,000,000 satoshis)
+  - `feeRate`: "fast" | "medium" | "slow" or custom sat/vB number (default: "medium")
+
 **Notes:**
 - All tools work on mainnet (`bc1...` addresses) or testnet (`tb1...` addresses) based on NETWORK config
-- If no address is provided, tools use the wallet's Bitcoin address (requires wallet unlock)
-- Data sourced from mempool.space public API (no authentication required)
+- Read operations can use any address or fall back to wallet's Bitcoin address
+- Write operations require an unlocked wallet with BTC balance
+- Uses P2WPKH (native SegWit) transactions for optimal fees
+- Change is sent back to the sender address
 
 **Example Usage:**
 | Request | Action |
@@ -191,6 +201,8 @@ Tools for querying Bitcoin L1 blockchain data via mempool.space API:
 | "What's my BTC balance?" | `get_btc_balance` (uses wallet's btcAddress) |
 | "Check BTC fees" | `get_btc_fees` |
 | "Show UTXOs for bc1q..." | `get_btc_utxos` with address |
+| "Send 50000 sats to tb1q..." | `transfer_btc` with recipient, amount=50000 |
+| "Transfer 0.001 BTC with fast fees" | `transfer_btc` with amount=100000, feeRate="fast" |
 
 ### Direct Stacks Transactions
 - `transfer_stx` - Transfer STX tokens to a recipient (signs and broadcasts)
@@ -476,16 +488,20 @@ Pillar sessions are stored in `~/.aibtc/pillar-session.json` containing the conn
 When a user asks for something:
 
 1. **For "transfer X STX to Y"** → Use `transfer_stx` directly
-2. **For known x402 endpoints** → Use `list_x402_endpoints` to find relevant endpoint, then `execute_x402_endpoint`
-3. **For any x402 URL** → Use `execute_x402_endpoint` with full `url` parameter - works with ANY x402-compatible endpoint
-4. **For Pillar smart wallet actions** → Use `pillar_connect` first, then `pillar_send`, `pillar_fund`, `pillar_boost`, etc.
-5. **For unknown actions** → Ask user for the x402 endpoint URL or check if it's a direct blockchain action
+2. **For "send X BTC to Y"** → Use `transfer_btc` (wallet must be unlocked)
+3. **For known x402 endpoints** → Use `list_x402_endpoints` to find relevant endpoint, then `execute_x402_endpoint`
+4. **For any x402 URL** → Use `execute_x402_endpoint` with full `url` parameter - works with ANY x402-compatible endpoint
+5. **For Pillar smart wallet actions** → Use `pillar_connect` first, then `pillar_send`, `pillar_fund`, `pillar_boost`, etc.
+6. **For unknown actions** → Ask user for the x402 endpoint URL or check if it's a direct blockchain action
 
 ### Example User Requests
 
 | Request | Action |
 |---------|--------|
 | "Send 2 STX to ST1..." | `transfer_stx` with amount "2000000" |
+| "Send 50000 sats to tb1q..." | `transfer_btc` with recipient, amount=50000 |
+| "Transfer 0.001 BTC with fast fees" | `transfer_btc` with amount=100000, feeRate="fast" |
+| "What's my BTC balance?" | `get_btc_balance` (uses wallet's btcAddress) |
 | "What are trending pools?" | `execute_x402_endpoint` with path="/api/pools/trending" |
 | "What pools can I trade on ALEX?" | `alex_list_pools` to discover available pairs |
 | "Swap 0.1 STX for ALEX" | `alex_swap` with tokenX="STX", tokenY="ALEX" (SDK handles resolution) |
