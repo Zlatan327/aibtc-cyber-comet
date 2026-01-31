@@ -8,10 +8,9 @@ import {
   PostCondition,
 } from "@stacks/transactions";
 import { getStacksNetwork, getApiBaseUrl, type Network } from "../config/networks.js";
+import type { WalletAddresses } from "../utils/storage.js";
 
-export interface Account {
-  address: string;
-  btcAddress?: string;
+export interface Account extends WalletAddresses {
   privateKey: string;
   /**
    * Bitcoin private key as raw bytes (32 bytes) for signing BTC transactions.
