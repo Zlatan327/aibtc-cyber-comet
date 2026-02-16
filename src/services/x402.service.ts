@@ -10,6 +10,57 @@ import { getWalletManager } from "./wallet-manager.js";
 const clientCache: Map<string, AxiosInstance> = new Map();
 
 /**
+ * Safe JSON transform - parses string responses without throwing
+ */
+function safeJsonTransform(data: unknown): unknown {
+  if (typeof data !== "string") {
+    return data;
+  }
+  const trimmed = data.trim();
+  if (!trimmed) {
+    return data;
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return data;
+  }
+}
+
+/**
+ * Create a plain axios instance with JSON parsing for both success and error responses.
+ * Used as the base for both payment-wrapped clients and probe requests.
+ */
+function createBaseAxiosInstance(baseURL?: string): AxiosInstance {
+  const instance = axios.create({
+    baseURL,
+    timeout: 60000,
+    transformResponse: [safeJsonTransform],
+  });
+
+  // Ensure error response bodies (especially 402 payloads) are also parsed as JSON
+  instance.interceptors.response.use(
+    (response) => response,
+    (error) => {
+      const data = error?.response?.data;
+      if (typeof data === "string") {
+        const trimmed = data.trim();
+        if (trimmed) {
+          try {
+            error.response.data = JSON.parse(trimmed);
+          } catch {
+            // Leave as-is if it's not JSON
+          }
+        }
+      }
+      return Promise.reject(error);
+    }
+  );
+
+  return instance;
+}
+
+/**
  * Convert mnemonic to account
  */
 export async function mnemonicToAccount(
@@ -45,46 +96,7 @@ export async function createApiClient(baseUrl?: string): Promise<AxiosInstance> 
 
   // Get account (from managed wallet or env mnemonic)
   const account = await getAccount();
-  const axiosInstance = axios.create({
-    baseURL: url,
-    timeout: 60000,
-    transformResponse: [
-      (data) => {
-        if (typeof data !== "string") {
-          return data;
-        }
-        const trimmed = data.trim();
-        if (!trimmed) {
-          return data;
-        }
-        try {
-          return JSON.parse(trimmed);
-        } catch {
-          return data;
-        }
-      },
-    ],
-  });
-
-  // Ensure 402 payloads are parsed before x402-stacks validates them
-  axiosInstance.interceptors.response.use(
-    (response) => response,
-    (error) => {
-      const data = error?.response?.data;
-      if (typeof data === "string") {
-        const trimmed = data.trim();
-        if (trimmed) {
-          try {
-            error.response.data = JSON.parse(trimmed);
-          } catch {
-            // Leave as-is if it's not JSON
-          }
-        }
-      }
-      return Promise.reject(error);
-    }
-  );
-
+  const axiosInstance = createBaseAxiosInstance(url);
   const client = wrapAxiosWithPayment(axiosInstance, account);
   clientCache.set(url, client);
   return client;
@@ -142,6 +154,83 @@ export async function getAccount(): Promise<Account> {
  */
 export function clearClientCache(): void {
   clientCache.clear();
+}
+
+/**
+ * Probe result types
+ */
+export type ProbeResultFree = {
+  type: 'free';
+  data: unknown;
+};
+
+export type ProbeResultPaymentRequired = {
+  type: 'payment_required';
+  amount: string;
+  asset: string;
+  recipient: string;
+  network: string;
+  endpoint: string;
+};
+
+export type ProbeResult = ProbeResultFree | ProbeResultPaymentRequired;
+
+/**
+ * Probe an endpoint without payment interceptor
+ * Returns either free response data or payment requirements
+ */
+export async function probeEndpoint(options: {
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  url: string;
+  params?: Record<string, string>;
+  data?: Record<string, unknown>;
+}): Promise<ProbeResult> {
+  const { method, url, params, data } = options;
+  const axiosInstance = createBaseAxiosInstance();
+
+  try {
+    const response = await axiosInstance.request({ method, url, params, data });
+
+    // 200 response - free endpoint
+    return {
+      type: 'free',
+      data: response.data,
+    };
+  } catch (error) {
+    const axiosError = error as { response?: { status?: number; data?: unknown } };
+
+    // 402 Payment Required - parse payment info
+    if (axiosError.response?.status === 402) {
+      const paymentData = axiosError.response.data as {
+        amount?: string;
+        asset?: string;
+        recipient?: string;
+        network?: string;
+      };
+
+      if (!paymentData.amount || !paymentData.asset || !paymentData.recipient || !paymentData.network) {
+        throw new Error(`Invalid 402 response from ${url}: missing payment fields`);
+      }
+
+      return {
+        type: 'payment_required',
+        amount: paymentData.amount,
+        asset: paymentData.asset,
+        recipient: paymentData.recipient,
+        network: paymentData.network,
+        endpoint: url,
+      };
+    }
+
+    // Other errors - propagate
+    if (axiosError.response) {
+      throw new Error(
+        `HTTP ${axiosError.response.status} from ${url}: ${JSON.stringify(axiosError.response.data)}`
+      );
+    }
+
+    throw error;
+  }
 }
 
 export { NETWORK, API_URL };
