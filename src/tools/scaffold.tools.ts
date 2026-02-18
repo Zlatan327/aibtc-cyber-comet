@@ -7,7 +7,6 @@ import {
   scaffoldAIProject,
   type EndpointConfig,
   type AIEndpointConfig,
-  type PricingTier,
 } from "../services/scaffold.service.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { getWalletAddress } from "../services/x402.service.js";
@@ -33,6 +32,48 @@ async function isExistingX402Project(dir: string): Promise<boolean> {
   }
 }
 
+/**
+ * Validate that a project directory does not already exist.
+ * Returns an error response if it does, or null if the path is clear.
+ */
+async function checkProjectConflict(
+  projectPath: string
+): Promise<ReturnType<typeof createJsonResponse> | null> {
+  const exists = await fs.access(projectPath).then(() => true).catch(() => false);
+  if (!exists) return null;
+
+  const isX402 = await isExistingX402Project(projectPath);
+  if (isX402) {
+    return createJsonResponse({
+      success: false,
+      error: "Project already exists",
+      message: `A project already exists at ${projectPath}. Adding endpoints to existing projects is not yet supported. Please choose a different project name or delete the existing project.`,
+      projectPath,
+    });
+  }
+  return createJsonResponse({
+    success: false,
+    error: "Directory already exists",
+    message: `A directory already exists at ${projectPath}. Please choose a different project name.`,
+    projectPath,
+  });
+}
+
+/**
+ * Resolve the recipient address: use the provided value, or fall back
+ * to the active wallet address, or return undefined.
+ */
+async function resolveRecipientAddress(
+  provided?: string
+): Promise<string | undefined> {
+  if (provided) return provided;
+  try {
+    return await getWalletAddress();
+  } catch {
+    return undefined;
+  }
+}
+
 export function registerScaffoldTools(server: McpServer): void {
   server.registerTool(
     "scaffold_x402_endpoint",
@@ -48,9 +89,9 @@ This creates a NEW PROJECT FOLDER with everything needed to deploy a pay-per-use
 
 A folder named \`{projectName}\` containing:
 - src/index.ts - Hono app with your x402-protected endpoints
-- src/x402-middleware.ts - Payment verification (uses x402-stacks library)
+- src/x402-middleware.ts - Payment verification (uses native relay fetch)
 - wrangler.jsonc - Cloudflare Worker config with staging/production envs
-- package.json - Dependencies including hono and x402-stacks
+- package.json - Dependencies including hono (no x402-stacks dependency)
 - .dev.vars - Local dev variables (pre-filled if you have a wallet)
 - README.md - Documentation
 
@@ -111,50 +152,23 @@ npm run dev
           .optional()
           .default("mainnet")
           .describe("Network for payments (default: mainnet)"),
-        facilitatorUrl: z
+        relayUrl: z
           .string()
           .url()
           .optional()
           .describe(
-            "Custom facilitator URL (default: https://facilitator.x402stacks.xyz)"
+            "Custom relay URL (default: https://x402-relay.aibtc.com)"
           ),
       },
     },
-    async ({ outputDir, projectName, endpoints, recipientAddress, network, facilitatorUrl }) => {
+    async ({ outputDir, projectName, endpoints, recipientAddress, network, relayUrl }) => {
       try {
         const projectPath = path.join(outputDir, projectName);
 
-        // Check if project already exists
-        const projectExists = await fs.access(projectPath).then(() => true).catch(() => false);
-        if (projectExists) {
-          // Check if it's an x402 project we can add to
-          const isX402 = await isExistingX402Project(projectPath);
-          if (isX402) {
-            return createJsonResponse({
-              success: false,
-              error: "Project already exists",
-              message: `A project already exists at ${projectPath}. Adding endpoints to existing projects is not yet supported. Please choose a different project name or delete the existing project.`,
-              projectPath,
-            });
-          } else {
-            return createJsonResponse({
-              success: false,
-              error: "Directory already exists",
-              message: `A directory already exists at ${projectPath}. Please choose a different project name.`,
-              projectPath,
-            });
-          }
-        }
+        const conflict = await checkProjectConflict(projectPath);
+        if (conflict) return conflict;
 
-        // Try to auto-fill recipient address from configured wallet if not provided
-        let finalRecipientAddress = recipientAddress;
-        if (!finalRecipientAddress) {
-          try {
-            finalRecipientAddress = await getWalletAddress();
-          } catch {
-            // No wallet configured - that's OK, user will need to set it manually
-          }
-        }
+        const finalRecipientAddress = await resolveRecipientAddress(recipientAddress);
 
         const result = await scaffoldProject({
           outputDir,
@@ -162,7 +176,7 @@ npm run dev
           endpoints: endpoints as EndpointConfig[],
           recipientAddress: finalRecipientAddress,
           network: network || "mainnet",
-          facilitatorUrl: facilitatorUrl || "https://facilitator.x402stacks.xyz",
+          relayUrl: relayUrl || "https://x402-relay.aibtc.com",
         });
 
         const responseEndpoints = endpoints.map((ep) => {
@@ -206,7 +220,7 @@ This creates a NEW PROJECT FOLDER with everything needed to deploy a pay-per-use
 
 A folder named \`{projectName}\` containing:
 - src/index.ts - Hono app with your x402-protected AI endpoints
-- src/x402-middleware.ts - Payment verification (uses x402-stacks library)
+- src/x402-middleware.ts - Payment verification (uses native relay fetch)
 - src/openrouter.ts - OpenRouter API client
 - wrangler.jsonc - Cloudflare Worker config
 - .dev.vars - Local dev variables (needs OPENROUTER_API_KEY)
@@ -274,11 +288,11 @@ npm run dev
           .optional()
           .default("mainnet")
           .describe("Network for payments (default: mainnet)"),
-        facilitatorUrl: z
+        relayUrl: z
           .string()
           .url()
           .optional()
-          .describe("Custom facilitator URL (default: https://facilitator.x402stacks.xyz)"),
+          .describe("Custom relay URL (default: https://x402-relay.aibtc.com)"),
         defaultModel: z
           .string()
           .optional()
@@ -292,43 +306,16 @@ npm run dev
       endpoints,
       recipientAddress,
       network,
-      facilitatorUrl,
+      relayUrl,
       defaultModel,
     }) => {
       try {
         const projectPath = path.join(outputDir, projectName);
 
-        // Check if project already exists
-        const projectExists = await fs.access(projectPath).then(() => true).catch(() => false);
-        if (projectExists) {
-          // Check if it's an x402 project we can add to
-          const isX402 = await isExistingX402Project(projectPath);
-          if (isX402) {
-            return createJsonResponse({
-              success: false,
-              error: "Project already exists",
-              message: `A project already exists at ${projectPath}. Adding endpoints to existing projects is not yet supported. Please choose a different project name or delete the existing project.`,
-              projectPath,
-            });
-          } else {
-            return createJsonResponse({
-              success: false,
-              error: "Directory already exists",
-              message: `A directory already exists at ${projectPath}. Please choose a different project name.`,
-              projectPath,
-            });
-          }
-        }
+        const conflict = await checkProjectConflict(projectPath);
+        if (conflict) return conflict;
 
-        // Try to auto-fill recipient address from configured wallet if not provided
-        let finalRecipientAddress = recipientAddress;
-        if (!finalRecipientAddress) {
-          try {
-            finalRecipientAddress = await getWalletAddress();
-          } catch {
-            // No wallet configured - that's OK, user will need to set it manually
-          }
-        }
+        const finalRecipientAddress = await resolveRecipientAddress(recipientAddress);
 
         const result = await scaffoldAIProject({
           outputDir,
@@ -336,7 +323,7 @@ npm run dev
           endpoints: endpoints as AIEndpointConfig[],
           recipientAddress: finalRecipientAddress,
           network: network || "mainnet",
-          facilitatorUrl: facilitatorUrl || "https://facilitator.x402stacks.xyz",
+          relayUrl: relayUrl || "https://x402-relay.aibtc.com",
           defaultModel: defaultModel || "anthropic/claude-3-haiku",
         });
 

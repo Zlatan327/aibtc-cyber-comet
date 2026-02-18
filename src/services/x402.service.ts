@@ -1,7 +1,20 @@
 import axios, { type AxiosInstance } from "axios";
-import { wrapAxiosWithPayment, decodePaymentRequired, X402_HEADERS, type PaymentRequiredV2 } from "x402-stacks";
+import {
+  makeSTXTokenTransfer,
+  makeContractCall,
+  uintCV,
+  principalCV,
+  noneCV,
+  PostConditionMode,
+} from "@stacks/transactions";
+import {
+  decodePaymentRequired,
+  encodePaymentPayload,
+  X402_HEADERS,
+} from "../utils/x402-protocol.js";
 import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
-import { NETWORK, API_URL, type Network } from "../config/networks.js";
+import { NETWORK, API_URL, getStacksNetwork, type Network } from "../config/networks.js";
+import { getNetworkFromStacksChainId } from "../config/caip.js";
 import type { Account } from "../transactions/builder.js";
 import { getWalletManager } from "./wallet-manager.js";
 import { formatStx, formatSbtc } from "../utils/formatting.js";
@@ -9,6 +22,7 @@ import { getSbtcService } from "./sbtc.service.js";
 import { getHiroApi } from "./hiro-api.js";
 import { createHash } from "crypto";
 import { InsufficientBalanceError } from "../utils/errors.js";
+import { getContracts, parseContractId } from "../config/contracts.js";
 
 // Track payment attempts per client instance (auto-cleanup via WeakMap)
 const paymentAttempts: WeakMap<AxiosInstance, number> = new WeakMap();
@@ -103,8 +117,9 @@ export async function createApiClient(baseUrl?: string): Promise<AxiosInstance> 
   const account = await getAccount();
   const axiosInstance = createBaseAxiosInstance(url);
 
-  // Axios response interceptors run in the order they are added (FIFO),
-  // so this guard will execute before the x402-stacks interceptor added by wrapAxiosWithPayment.
+  // Interceptor 1 (FIFO): max-1-payment-attempt guard.
+  // On the first 402, increments the counter and re-rejects so Interceptor 2 can handle it.
+  // On a second 402 (would-be retry loop), rejects with a user-facing error.
   axiosInstance.interceptors.response.use(
     (response) => response,
     (error) => {
@@ -125,15 +140,123 @@ export async function createApiClient(baseUrl?: string): Promise<AxiosInstance> 
         );
       }
 
-      // Increment counter and pass through to x402-stacks interceptor
+      // Increment counter and pass through to the native payment interceptor
       paymentAttempts.set(axiosInstance, attempts + 1);
       return Promise.reject(error);
     }
   );
 
-  // Wrap with x402-stacks payment interceptor
-  const client = wrapAxiosWithPayment(axiosInstance, account);
-  return client;
+  // Interceptor 2 (FIFO): native x402 payment handler.
+  // Decodes payment requirements, builds a sponsored signed transaction, encodes the
+  // PaymentPayloadV2 into the payment-signature header, and retries the original request.
+  axiosInstance.interceptors.response.use(
+    (response) => response,
+    async (error) => {
+      if (error.response?.status !== 402) {
+        return Promise.reject(error);
+      }
+
+      try {
+        // Decode payment requirements from header
+        const headerValue = error.response?.headers?.[X402_HEADERS.PAYMENT_REQUIRED];
+        const paymentRequired = decodePaymentRequired(headerValue);
+
+        if (!paymentRequired || !paymentRequired.accepts || paymentRequired.accepts.length === 0) {
+          return Promise.reject(
+            new Error("Invalid x402 402 response: missing or empty payment-required header")
+          );
+        }
+
+        // Select first Stacks-compatible payment option
+        const selectedOption = paymentRequired.accepts.find(
+          (opt) => opt.network?.startsWith("stacks:")
+        );
+
+        if (!selectedOption) {
+          const networks = paymentRequired.accepts.map((a) => a.network).join(", ");
+          return Promise.reject(
+            new Error(`No compatible Stacks payment option found. Available networks: ${networks}`)
+          );
+        }
+
+        // Verify the payment network matches our configured network
+        const paymentNetwork = getNetworkFromStacksChainId(selectedOption.network);
+        if (paymentNetwork && paymentNetwork !== account.network) {
+          return Promise.reject(
+            new Error(
+              `Network mismatch: endpoint requires ${paymentNetwork} but wallet is configured for ${account.network}. ` +
+              `Switch to a ${paymentNetwork} wallet or use a ${account.network} endpoint.`
+            )
+          );
+        }
+
+        // Build a sponsored signed transaction (relay pays gas; fee: 0n)
+        const tokenType = detectTokenType(selectedOption.asset);
+        const amount = BigInt(selectedOption.amount);
+        const networkName = getStacksNetwork(account.network);
+
+        let transaction;
+        if (tokenType === "sBTC") {
+          const contracts = getContracts(account.network);
+          const { address: contractAddress, name: contractName } = parseContractId(
+            contracts.SBTC_TOKEN
+          );
+
+          transaction = await makeContractCall({
+            contractAddress,
+            contractName,
+            functionName: "transfer",
+            functionArgs: [
+              uintCV(amount),
+              principalCV(account.address),
+              principalCV(selectedOption.payTo),
+              noneCV(),
+            ],
+            senderKey: account.privateKey,
+            network: networkName,
+            postConditionMode: PostConditionMode.Allow,
+            sponsored: true,
+            fee: 0n,
+          });
+        } else {
+          transaction = await makeSTXTokenTransfer({
+            recipient: selectedOption.payTo,
+            amount,
+            senderKey: account.privateKey,
+            network: networkName,
+            memo: "",
+            sponsored: true,
+            fee: 0n,
+          });
+        }
+
+        const txHex = "0x" + transaction.serialize();
+
+        // Encode PaymentPayloadV2 into payment-signature header
+        const encodedPayload = encodePaymentPayload({
+          x402Version: 2,
+          resource: paymentRequired.resource,
+          accepted: selectedOption,
+          payload: { transaction: txHex },
+        });
+
+        // Retry the original request with the payment header
+        const originalRequest = error.config;
+        originalRequest.headers = originalRequest.headers || {};
+        originalRequest.headers[X402_HEADERS.PAYMENT_SIGNATURE] = encodedPayload;
+
+        return axiosInstance.request(originalRequest);
+      } catch (paymentError) {
+        return Promise.reject(
+          new Error(
+            `x402 payment failed: ${paymentError instanceof Error ? paymentError.message : String(paymentError)}`
+          )
+        );
+      }
+    }
+  );
+
+  return axiosInstance;
 }
 
 /**
@@ -257,37 +380,21 @@ export async function probeEndpoint(options: {
     if (axiosError.response?.status === 402) {
       // Try to parse v2 payment-required header first
       const headerValue = axiosError.response.headers?.[X402_HEADERS.PAYMENT_REQUIRED];
-      let paymentRequired: PaymentRequiredV2 | null = null;
-
-      if (headerValue) {
-        try {
-          paymentRequired = decodePaymentRequired(headerValue);
-        } catch {
-          paymentRequired = null;
-        }
-      }
+      const paymentRequired = decodePaymentRequired(headerValue);
 
       // If v2 header is successfully parsed, use it
-      if (paymentRequired && paymentRequired.accepts && paymentRequired.accepts.length > 0) {
+      if (paymentRequired?.accepts?.length) {
         const acceptedPayment = paymentRequired.accepts[0];
 
-        // Convert CAIP-2 or simple network identifier to normalized format
-        let network: string = acceptedPayment.network;
-        if (network === 'stacks:1' || network === 'mainnet') {
-          network = 'mainnet';
-        } else if (network === 'stacks:2147483648' || network === 'testnet') {
-          network = 'testnet';
-        } else {
-          // Fallback to configured default network if identifier is unrecognized
-          network = NETWORK;
-        }
+        // Convert CAIP-2 network identifier to human-readable format
+        const network = getNetworkFromStacksChainId(acceptedPayment.network) ?? NETWORK;
 
         return {
           type: 'payment_required',
           amount: acceptedPayment.amount,
           asset: acceptedPayment.asset,
           recipient: acceptedPayment.payTo,
-          network: network,
+          network,
           endpoint: url,
           resource: paymentRequired.resource,
           maxTimeoutSeconds: acceptedPayment.maxTimeoutSeconds,

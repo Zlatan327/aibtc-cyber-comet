@@ -31,7 +31,7 @@ export interface ScaffoldConfig {
   /** Recipient address - if not provided, must be set via wrangler secret */
   recipientAddress?: string;
   network: "mainnet" | "testnet";
-  facilitatorUrl: string;
+  relayUrl: string;
 }
 
 export interface ScaffoldResult {
@@ -47,7 +47,7 @@ export interface AIScaffoldConfig {
   /** Recipient address - if not provided, must be set via wrangler secret */
   recipientAddress?: string;
   network: "mainnet" | "testnet";
-  facilitatorUrl: string;
+  relayUrl: string;
   defaultModel: string;
 }
 
@@ -204,7 +204,7 @@ import type { X402Context } from './x402-middleware';
 type Env = {
   RECIPIENT_ADDRESS: string;
   NETWORK: string;
-  FACILITATOR_URL: string;
+  RELAY_URL: string;
 };
 
 type Variables = {
@@ -281,11 +281,10 @@ function getMiddlewareTemplate(): string {
  * - https://github.com/aibtcdev/x402-api
  * - https://github.com/whoabuddy/stx402
  *
- * Uses the x402-stacks v2 library for payment verification.
+ * Uses the x402-relay service for payment verification.
  */
 
 import type { Context, Next } from 'hono';
-import { X402PaymentVerifier } from 'x402-stacks';
 
 // =============================================================================
 // Types
@@ -334,8 +333,8 @@ interface PaymentRequirement {
 }
 
 type PaymentErrorCode =
-  | 'FACILITATOR_UNAVAILABLE'
-  | 'FACILITATOR_ERROR'
+  | 'RELAY_UNAVAILABLE'
+  | 'RELAY_ERROR'
   | 'PAYMENT_INVALID'
   | 'INSUFFICIENT_FUNDS'
   | 'PAYMENT_EXPIRED'
@@ -384,11 +383,11 @@ function classifyPaymentError(error: unknown, settleResult?: SettleResult): {
   const combined = \`\${errorStr} \${resultError} \${resultReason} \${validationError}\`;
 
   if (combined.includes('fetch') || combined.includes('network') || combined.includes('timeout')) {
-    return { code: 'NETWORK_ERROR', message: 'Network error with payment facilitator', httpStatus: 502, retryAfter: 5 };
+    return { code: 'NETWORK_ERROR', message: 'Network error with payment relay', httpStatus: 502, retryAfter: 5 };
   }
 
   if (combined.includes('503') || combined.includes('unavailable')) {
-    return { code: 'FACILITATOR_UNAVAILABLE', message: 'Payment facilitator temporarily unavailable', httpStatus: 503, retryAfter: 30 };
+    return { code: 'RELAY_UNAVAILABLE', message: 'Payment relay temporarily unavailable', httpStatus: 503, retryAfter: 30 };
   }
 
   if (combined.includes('insufficient') || combined.includes('balance')) {
@@ -417,7 +416,7 @@ function classifyPaymentError(error: unknown, settleResult?: SettleResult): {
 type Env = {
   RECIPIENT_ADDRESS: string;
   NETWORK: string;
-  FACILITATOR_URL: string;
+  RELAY_URL: string;
 };
 
 /**
@@ -425,14 +424,14 @@ type Env = {
  *
  * Handles the x402 payment flow:
  * 1. If no X-PAYMENT header, return 402 with payment requirements
- * 2. If X-PAYMENT header present, verify payment via facilitator
+ * 2. If X-PAYMENT header present, verify payment via relay
  * 3. On success, attach payment context and continue to handler
  */
 export function x402Middleware(config: X402Config) {
   return async (c: Context<{ Bindings: Env; Variables: { x402?: X402Context } }>, next: Next) => {
     const env = c.env;
     const network = (env.NETWORK || 'testnet') as 'mainnet' | 'testnet';
-    const facilitatorUrl = env.FACILITATOR_URL || 'https://facilitator.x402stacks.xyz';
+    const relayUrl = env.RELAY_URL || (network === 'mainnet' ? 'https://x402-relay.aibtc.com' : 'https://x402-relay.aibtc.dev');
     const recipientAddress = env.RECIPIENT_ADDRESS;
 
     // Get token type from header or use config default
@@ -466,16 +465,27 @@ export function x402Middleware(config: X402Config) {
       return c.json(paymentReq, 402);
     }
 
-    // Verify payment via x402-stacks
-    const verifier = new X402PaymentVerifier(facilitatorUrl, network);
-
+    // Verify payment via x402 relay
     let settleResult: SettleResult;
     try {
-      settleResult = await verifier.settlePayment(signedTx, {
-        expectedRecipient: recipientAddress,
-        minAmount,
-        tokenType,
-      }) as SettleResult;
+      const relayResponse = await fetch(\`\${relayUrl}/settle\`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          signedTx,
+          expectedRecipient: recipientAddress,
+          minAmount: config.amount,
+          tokenType,
+          network,
+        }),
+      });
+
+      if (!relayResponse.ok) {
+        const errorText = await relayResponse.text().catch(() => relayResponse.statusText);
+        throw new Error(\`Relay returned \${relayResponse.status}: \${errorText}\`);
+      }
+
+      settleResult = (await relayResponse.json()) as SettleResult;
     } catch (error) {
       const classified = classifyPaymentError(error);
 
@@ -541,8 +551,9 @@ export function x402Middleware(config: X402Config) {
 `;
 }
 
-function getWranglerTemplate(projectName: string, network: string, facilitatorUrl: string): string {
-  const mainnetFacilitator = "https://facilitator.x402stacks.xyz";
+function getWranglerTemplate(projectName: string, network: string, relayUrl: string): string {
+  const mainnetRelay = "https://x402-relay.aibtc.com";
+  const testnetRelay = "https://x402-relay.aibtc.dev";
   return `{
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "${projectName}",
@@ -552,7 +563,7 @@ function getWranglerTemplate(projectName: string, network: string, facilitatorUr
   "workers_dev": true,
   "vars": {
     "NETWORK": "${network}",
-    "FACILITATOR_URL": "${facilitatorUrl}"
+    "RELAY_URL": "${relayUrl}"
   },
   "env": {
     "staging": {
@@ -560,7 +571,7 @@ function getWranglerTemplate(projectName: string, network: string, facilitatorUr
       "workers_dev": true,
       "vars": {
         "NETWORK": "testnet",
-        "FACILITATOR_URL": "${facilitatorUrl}"
+        "RELAY_URL": "${testnetRelay}"
       }
     },
     "production": {
@@ -568,7 +579,7 @@ function getWranglerTemplate(projectName: string, network: string, facilitatorUr
       "workers_dev": false,
       "vars": {
         "NETWORK": "mainnet",
-        "FACILITATOR_URL": "${mainnetFacilitator}"
+        "RELAY_URL": "${mainnetRelay}"
       }
     }
   }
@@ -591,8 +602,7 @@ function getPackageJsonTemplate(projectName: string): string {
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
-    "hono": "^4.7.0",
-    "x402-stacks": "^2.0.1"
+    "hono": "^4.7.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",
@@ -744,7 +754,7 @@ npm run deploy:production
    \`\`\`
 3. Client signs payment transaction (does NOT broadcast)
 4. Client retries request with \`X-PAYMENT\` header containing signed tx
-5. Server verifies and settles payment via facilitator
+5. Server verifies and settles payment via relay
 6. Server returns actual response
 
 ## Testing with curl
@@ -782,7 +792,7 @@ The API returns structured error responses for payment failures:
 | \`AMOUNT_TOO_LOW\` | Payment below minimum | 402 |
 | \`PAYMENT_INVALID\` | Bad signature/params | 400 |
 | \`NETWORK_ERROR\` | Transient error | 502 |
-| \`FACILITATOR_UNAVAILABLE\` | Try again later | 503 |
+| \`RELAY_UNAVAILABLE\` | Try again later | 503 |
 
 ---
 
@@ -791,13 +801,13 @@ Generated with [@aibtc/mcp-server](https://www.npmjs.com/package/@aibtc/mcp-serv
 }
 
 // =============================================================================
-// MAIN SCAFFOLD FUNCTION
+// SHARED SCAFFOLD HELPERS
 // =============================================================================
 
-export async function scaffoldProject(config: ScaffoldConfig): Promise<ScaffoldResult> {
-  const { outputDir, projectName, endpoints, recipientAddress, network, facilitatorUrl } = config;
-
-  // Validate output directory exists
+/**
+ * Validate that the output directory exists and is a directory.
+ */
+async function validateOutputDir(outputDir: string): Promise<void> {
   try {
     const stat = await fs.stat(outputDir);
     if (!stat.isDirectory()) {
@@ -809,38 +819,59 @@ export async function scaffoldProject(config: ScaffoldConfig): Promise<ScaffoldR
     }
     throw error;
   }
+}
 
-  const projectPath = path.join(outputDir, projectName);
+/**
+ * Create project directory structure and write all files.
+ * Returns the list of file names created.
+ */
+async function writeProjectFiles(
+  projectPath: string,
+  files: Array<{ name: string; content: string }>
+): Promise<string[]> {
   const srcPath = path.join(projectPath, "src");
-
-  // Create project directory structure
   await fs.mkdir(projectPath, { recursive: true });
   await fs.mkdir(srcPath, { recursive: true });
 
   const filesCreated: string[] = [];
+  for (const file of files) {
+    const filePath = path.join(projectPath, file.name);
+    await fs.writeFile(filePath, file.content, "utf-8");
+    filesCreated.push(file.name);
+  }
+  return filesCreated;
+}
 
-  // Generate and write files
-  const files: Array<{ name: string; content: string }> = [
+/**
+ * Build the wrangler secret instruction for RECIPIENT_ADDRESS.
+ */
+function getAddressInstruction(recipientAddress?: string): string {
+  return recipientAddress
+    ? `wrangler secret put RECIPIENT_ADDRESS (enter: ${recipientAddress})`
+    : "wrangler secret put RECIPIENT_ADDRESS (enter your Stacks address)";
+}
+
+// =============================================================================
+// MAIN SCAFFOLD FUNCTION
+// =============================================================================
+
+export async function scaffoldProject(config: ScaffoldConfig): Promise<ScaffoldResult> {
+  const { outputDir, projectName, endpoints, recipientAddress, network, relayUrl } = config;
+
+  await validateOutputDir(outputDir);
+
+  const projectPath = path.join(outputDir, projectName);
+  const filesCreated = await writeProjectFiles(projectPath, [
     { name: "src/index.ts", content: getIndexTemplate(endpoints) },
     { name: "src/x402-middleware.ts", content: getMiddlewareTemplate() },
-    { name: "wrangler.jsonc", content: getWranglerTemplate(projectName, network, facilitatorUrl) },
+    { name: "wrangler.jsonc", content: getWranglerTemplate(projectName, network, relayUrl) },
     { name: "package.json", content: getPackageJsonTemplate(projectName) },
     { name: "tsconfig.json", content: getTsconfigTemplate() },
     { name: ".env.example", content: getEnvExampleTemplate(recipientAddress) },
     { name: ".dev.vars", content: getDevVarsTemplate(recipientAddress) },
     { name: ".gitignore", content: getGitignoreTemplate() },
     { name: "README.md", content: getReadmeTemplate(projectName, endpoints, recipientAddress) },
-  ];
-
-  for (const file of files) {
-    const filePath = path.join(projectPath, file.name);
-    await fs.writeFile(filePath, file.content, "utf-8");
-    filesCreated.push(file.name);
-  }
-
-  const addressInstruction = recipientAddress
-    ? `wrangler secret put RECIPIENT_ADDRESS (enter: ${recipientAddress})`
-    : "wrangler secret put RECIPIENT_ADDRESS (enter your Stacks address)";
+  ]);
 
   return {
     projectPath,
@@ -853,7 +884,7 @@ export async function scaffoldProject(config: ScaffoldConfig): Promise<ScaffoldR
         : "# Edit .dev.vars and set your RECIPIENT_ADDRESS",
       "npm run dev",
       "# For production deployment:",
-      addressInstruction,
+      getAddressInstruction(recipientAddress),
       "npm run deploy:production",
     ],
   };
@@ -965,7 +996,7 @@ import { callOpenRouter } from './openrouter';
 type Env = {
   RECIPIENT_ADDRESS: string;
   NETWORK: string;
-  FACILITATOR_URL: string;
+  RELAY_URL: string;
   OPENROUTER_API_KEY: string;
 };
 
@@ -1096,7 +1127,7 @@ export async function callOpenRouter(request: OpenRouterRequest): Promise<OpenRo
     headers: {
       'Authorization': \`Bearer \${apiKey}\`,
       'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://x402stacks.xyz',
+      'HTTP-Referer': 'https://aibtc.com',
       'X-Title': 'x402 AI Endpoint',
     },
     body: JSON.stringify({
@@ -1145,8 +1176,7 @@ function getAIPackageJsonTemplate(projectName: string): string {
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
-    "hono": "^4.7.0",
-    "x402-stacks": "^2.0.1"
+    "hono": "^4.7.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",
@@ -1289,7 +1319,7 @@ curl -X POST http://localhost:8787${endpoints[0]?.path || "/api/chat"} \\
 2. Server returns HTTP 402 with payment requirements
 3. Client signs payment transaction (does NOT broadcast)
 4. Client retries request with \`X-PAYMENT\` header containing signed tx
-5. Server verifies and settles payment via facilitator
+5. Server verifies and settles payment via relay
 6. Server calls OpenRouter API and returns AI response
 
 ## Token Type Selection
@@ -1327,7 +1357,7 @@ See all models: https://openrouter.ai/models
 | \`AMOUNT_TOO_LOW\` | Payment below minimum | 402 |
 | \`PAYMENT_INVALID\` | Bad signature/params | 400 |
 | \`NETWORK_ERROR\` | Transient error | 502 |
-| \`FACILITATOR_UNAVAILABLE\` | Try again later | 503 |
+| \`RELAY_UNAVAILABLE\` | Try again later | 503 |
 
 ---
 
@@ -1340,44 +1370,17 @@ Generated with [@aibtc/mcp-server](https://www.npmjs.com/package/@aibtc/mcp-serv
 // =============================================================================
 
 export async function scaffoldAIProject(config: AIScaffoldConfig): Promise<ScaffoldResult> {
-  const {
-    outputDir,
-    projectName,
-    endpoints,
-    recipientAddress,
-    network,
-    facilitatorUrl,
-    defaultModel,
-  } = config;
+  const { outputDir, projectName, endpoints, recipientAddress, network, relayUrl, defaultModel } =
+    config;
 
-  // Validate output directory exists
-  try {
-    const stat = await fs.stat(outputDir);
-    if (!stat.isDirectory()) {
-      throw new Error(`Output path is not a directory: ${outputDir}`);
-    }
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new Error(`Output directory does not exist: ${outputDir}`);
-    }
-    throw error;
-  }
+  await validateOutputDir(outputDir);
 
   const projectPath = path.join(outputDir, projectName);
-  const srcPath = path.join(projectPath, "src");
-
-  // Create project directory structure
-  await fs.mkdir(projectPath, { recursive: true });
-  await fs.mkdir(srcPath, { recursive: true });
-
-  const filesCreated: string[] = [];
-
-  // Generate and write files
-  const files: Array<{ name: string; content: string }> = [
+  const filesCreated = await writeProjectFiles(projectPath, [
     { name: "src/index.ts", content: getAIIndexTemplate(endpoints, defaultModel) },
     { name: "src/x402-middleware.ts", content: getMiddlewareTemplate() },
     { name: "src/openrouter.ts", content: getOpenRouterTemplate() },
-    { name: "wrangler.jsonc", content: getWranglerTemplate(projectName, network, facilitatorUrl) },
+    { name: "wrangler.jsonc", content: getWranglerTemplate(projectName, network, relayUrl) },
     { name: "package.json", content: getAIPackageJsonTemplate(projectName) },
     { name: "tsconfig.json", content: getTsconfigTemplate() },
     { name: ".env.example", content: getAIEnvExampleTemplate(recipientAddress) },
@@ -1387,17 +1390,7 @@ export async function scaffoldAIProject(config: AIScaffoldConfig): Promise<Scaff
       name: "README.md",
       content: getAIReadmeTemplate(projectName, endpoints, recipientAddress, defaultModel),
     },
-  ];
-
-  for (const file of files) {
-    const filePath = path.join(projectPath, file.name);
-    await fs.writeFile(filePath, file.content, "utf-8");
-    filesCreated.push(file.name);
-  }
-
-  const addressInstruction = recipientAddress
-    ? `wrangler secret put RECIPIENT_ADDRESS (enter: ${recipientAddress})`
-    : "wrangler secret put RECIPIENT_ADDRESS (enter your Stacks address)";
+  ]);
 
   return {
     projectPath,
@@ -1408,7 +1401,7 @@ export async function scaffoldAIProject(config: AIScaffoldConfig): Promise<Scaff
       "# Edit .dev.vars with your RECIPIENT_ADDRESS and OPENROUTER_API_KEY",
       "npm run dev",
       "# For production deployment:",
-      addressInstruction,
+      getAddressInstruction(recipientAddress),
       "wrangler secret put OPENROUTER_API_KEY (get from https://openrouter.ai/keys)",
       "npm run deploy:production",
     ],
