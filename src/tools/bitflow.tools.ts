@@ -72,7 +72,7 @@ Note: Bitflow is only available on mainnet.`,
   );
 
   // ==========================================================================
-  // SDK Tools (Requires BITFLOW_API_KEY)
+  // SDK Tools (No API Key Required — 500 req/min public rate limit)
   // ==========================================================================
 
   // Get available tokens
@@ -82,7 +82,7 @@ Note: Bitflow is only available on mainnet.`,
       description: `Get all available tokens for swapping on Bitflow.
 
 Returns the list of tokens that can be swapped on Bitflow DEX.
-Requires BITFLOW_API_KEY environment variable.
+No API key required — uses public endpoints (500 req/min).
 
 Note: Bitflow is only available on mainnet.`,
       inputSchema: {},
@@ -97,15 +97,6 @@ Note: Bitflow is only available on mainnet.`,
         }
 
         const bitflowService = getBitflowService(NETWORK);
-
-        if (!bitflowService.isSdkAvailable()) {
-          return createJsonResponse({
-            error: "Bitflow SDK not configured",
-            message: "Set BITFLOW_API_KEY environment variable to enable this feature",
-            alternative: "Use bitflow_get_ticker for public market data (no API key required)",
-          });
-        }
-
         const tokens = await bitflowService.getAvailableTokens();
 
         return createJsonResponse({
@@ -126,7 +117,7 @@ Note: Bitflow is only available on mainnet.`,
       description: `Get possible swap target tokens for a given input token on Bitflow.
 
 Returns all tokens that can be received when swapping from the specified token.
-Requires BITFLOW_API_KEY environment variable.
+No API key required — uses public endpoints (500 req/min).
 
 Note: Bitflow is only available on mainnet.`,
       inputSchema: {
@@ -143,14 +134,6 @@ Note: Bitflow is only available on mainnet.`,
         }
 
         const bitflowService = getBitflowService(NETWORK);
-
-        if (!bitflowService.isSdkAvailable()) {
-          return createJsonResponse({
-            error: "Bitflow SDK not configured",
-            message: "Set BITFLOW_API_KEY environment variable to enable this feature",
-          });
-        }
-
         const targets = await bitflowService.getPossibleSwapTargets(tokenId);
 
         return createJsonResponse({
@@ -171,13 +154,13 @@ Note: Bitflow is only available on mainnet.`,
     {
       description: `Get a swap quote from Bitflow DEX.
 
-Returns the expected output amount and route for swapping tokens.
-Requires BITFLOW_API_KEY environment variable.
+Returns the expected output amount and best route for swapping tokens.
+No API key required — uses public endpoints (500 req/min).
 
 Note: Bitflow is only available on mainnet.`,
       inputSchema: {
-        tokenX: z.string().describe("Input token ID (contract address)"),
-        tokenY: z.string().describe("Output token ID (contract address)"),
+        tokenX: z.string().describe("Input token ID (e.g. 'token-stx', 'token-sbtc')"),
+        tokenY: z.string().describe("Output token ID (e.g. 'token-sbtc', 'token-aeusdc')"),
         amountIn: z.string().describe("Amount of input token (in smallest units)"),
       },
     },
@@ -191,14 +174,6 @@ Note: Bitflow is only available on mainnet.`,
         }
 
         const bitflowService = getBitflowService(NETWORK);
-
-        if (!bitflowService.isSdkAvailable()) {
-          return createJsonResponse({
-            error: "Bitflow SDK not configured",
-            message: "Set BITFLOW_API_KEY environment variable to enable this feature",
-          });
-        }
-
         const quote = await bitflowService.getSwapQuote(tokenX, tokenY, Number(amountIn));
 
         return createJsonResponse({
@@ -217,14 +192,14 @@ Note: Bitflow is only available on mainnet.`,
     {
       description: `Get all possible swap routes between two tokens on Bitflow.
 
-Returns all available routes for swapping from tokenX to tokenY.
-Useful for understanding routing options.
-Requires BITFLOW_API_KEY environment variable.
+Returns all available routes for swapping from tokenX to tokenY,
+including multi-hop routes through intermediate tokens.
+No API key required — uses public endpoints (500 req/min).
 
 Note: Bitflow is only available on mainnet.`,
       inputSchema: {
-        tokenX: z.string().describe("Input token ID (contract address)"),
-        tokenY: z.string().describe("Output token ID (contract address)"),
+        tokenX: z.string().describe("Input token ID (e.g. 'token-stx', 'token-sbtc')"),
+        tokenY: z.string().describe("Output token ID (e.g. 'token-sbtc', 'token-aeusdc')"),
       },
     },
     async ({ tokenX, tokenY }) => {
@@ -237,14 +212,6 @@ Note: Bitflow is only available on mainnet.`,
         }
 
         const bitflowService = getBitflowService(NETWORK);
-
-        if (!bitflowService.isSdkAvailable()) {
-          return createJsonResponse({
-            error: "Bitflow SDK not configured",
-            message: "Set BITFLOW_API_KEY environment variable to enable this feature",
-          });
-        }
-
         const routes = await bitflowService.getAllRoutes(tokenX, tokenY);
 
         return createJsonResponse({
@@ -270,7 +237,9 @@ Note: Bitflow is only available on mainnet.`,
       description: `Execute a token swap on Bitflow DEX.
 
 Swaps tokenX for tokenY using Bitflow's aggregated liquidity.
-Requires BITFLOW_API_KEY environment variable.
+Automatically finds the best route across all Bitflow pools.
+No API key required — uses public endpoints (500 req/min).
+Requires an unlocked wallet with sufficient token balance.
 
 Note: Bitflow is only available on mainnet.`,
       inputSchema: {
@@ -298,14 +267,6 @@ Note: Bitflow is only available on mainnet.`,
         }
 
         const bitflowService = getBitflowService(NETWORK);
-
-        if (!bitflowService.isSdkAvailable()) {
-          return createJsonResponse({
-            error: "Bitflow SDK not configured",
-            message: "Set BITFLOW_API_KEY environment variable to enable this feature",
-          });
-        }
-
         const account = await getAccount();
         const resolvedFee = await resolveFee(fee, NETWORK, "contract_call");
         const result = await bitflowService.swap(
@@ -336,7 +297,7 @@ Note: Bitflow is only available on mainnet.`,
   );
 
   // ==========================================================================
-  // Keeper Tools (Requires BITFLOW_KEEPER_API_KEY)
+  // Keeper Tools
   // ==========================================================================
 
   // Get or create keeper contract
@@ -346,7 +307,7 @@ Note: Bitflow is only available on mainnet.`,
       description: `Get or create a Bitflow Keeper contract for automated swaps.
 
 Keeper contracts enable scheduled/automated token swaps.
-Requires BITFLOW_KEEPER_API_KEY environment variable.
+No API key required — uses public endpoints (500 req/min).
 
 Note: Bitflow is only available on mainnet.`,
       inputSchema: {
@@ -366,13 +327,6 @@ Note: Bitflow is only available on mainnet.`,
         }
 
         const bitflowService = getBitflowService(NETWORK);
-
-        if (!bitflowService.isKeeperAvailable()) {
-          return createJsonResponse({
-            error: "Bitflow Keeper not configured",
-            message: "Set BITFLOW_KEEPER_API_KEY environment variable to enable Keeper features",
-          });
-        }
 
         const address = stacksAddress || (await getWalletAddress());
         const result = await bitflowService.getOrCreateKeeperContract(address);
@@ -396,7 +350,7 @@ Note: Bitflow is only available on mainnet.`,
       description: `Create an automated swap order via Bitflow Keeper.
 
 Creates a pending order that will be executed by the Keeper service.
-Requires BITFLOW_KEEPER_API_KEY environment variable.
+No API key required — uses public endpoints (500 req/min).
 
 Note: Bitflow is only available on mainnet.`,
       inputSchema: {
@@ -427,13 +381,6 @@ Note: Bitflow is only available on mainnet.`,
         }
 
         const bitflowService = getBitflowService(NETWORK);
-
-        if (!bitflowService.isKeeperAvailable()) {
-          return createJsonResponse({
-            error: "Bitflow Keeper not configured",
-            message: "Set BITFLOW_KEEPER_API_KEY environment variable to enable Keeper features",
-          });
-        }
 
         const address = await getWalletAddress();
         const result = await bitflowService.createKeeperOrder({
@@ -472,7 +419,7 @@ Note: Bitflow is only available on mainnet.`,
       description: `Get details of a Bitflow Keeper order.
 
 Retrieves the status and details of a specific order.
-Requires BITFLOW_KEEPER_API_KEY environment variable.
+No API key required — uses public endpoints (500 req/min).
 
 Note: Bitflow is only available on mainnet.`,
       inputSchema: {
@@ -489,13 +436,6 @@ Note: Bitflow is only available on mainnet.`,
         }
 
         const bitflowService = getBitflowService(NETWORK);
-
-        if (!bitflowService.isKeeperAvailable()) {
-          return createJsonResponse({
-            error: "Bitflow Keeper not configured",
-            message: "Set BITFLOW_KEEPER_API_KEY environment variable to enable Keeper features",
-          });
-        }
 
         const order = await bitflowService.getKeeperOrder(orderId);
 
@@ -516,7 +456,7 @@ Note: Bitflow is only available on mainnet.`,
       description: `Cancel a Bitflow Keeper order.
 
 Cancels a pending order before execution.
-Requires BITFLOW_KEEPER_API_KEY environment variable.
+No API key required — uses public endpoints (500 req/min).
 
 Note: Bitflow is only available on mainnet.`,
       inputSchema: {
@@ -533,13 +473,6 @@ Note: Bitflow is only available on mainnet.`,
         }
 
         const bitflowService = getBitflowService(NETWORK);
-
-        if (!bitflowService.isKeeperAvailable()) {
-          return createJsonResponse({
-            error: "Bitflow Keeper not configured",
-            message: "Set BITFLOW_KEEPER_API_KEY environment variable to enable Keeper features",
-          });
-        }
 
         const result = await bitflowService.cancelKeeperOrder(orderId);
 
@@ -561,7 +494,7 @@ Note: Bitflow is only available on mainnet.`,
       description: `Get Bitflow Keeper user info and orders.
 
 Retrieves user's keeper contracts and order history.
-Requires BITFLOW_KEEPER_API_KEY environment variable.
+No API key required — uses public endpoints (500 req/min).
 
 Note: Bitflow is only available on mainnet.`,
       inputSchema: {
@@ -581,13 +514,6 @@ Note: Bitflow is only available on mainnet.`,
         }
 
         const bitflowService = getBitflowService(NETWORK);
-
-        if (!bitflowService.isKeeperAvailable()) {
-          return createJsonResponse({
-            error: "Bitflow Keeper not configured",
-            message: "Set BITFLOW_KEEPER_API_KEY environment variable to enable Keeper features",
-          });
-        }
 
         const address = stacksAddress || (await getWalletAddress());
         const userInfo = await bitflowService.getKeeperUser(address);
