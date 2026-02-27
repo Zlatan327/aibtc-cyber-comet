@@ -1,19 +1,12 @@
 import {
   makeSTXTokenTransfer,
   makeContractCall,
+  makeContractDeploy,
   PostConditionMode,
 } from "@stacks/transactions";
 import { getStacksNetwork, type Network } from "../config/networks.js";
 import { getSponsorRelayUrl, getSponsorApiKey } from "../config/sponsor.js";
-import type { Account, ContractCallOptions, TransferResult } from "./builder.js";
-
-export interface SponsoredTransferOptions {
-  senderKey: string;
-  recipient: string;
-  amount: bigint;
-  memo?: string;
-  network: Network;
-}
+import type { Account, ContractCallOptions, ContractDeployOptions, TransferResult } from "./builder.js";
 
 export interface SponsorRelayResponse {
   success: boolean;
@@ -94,26 +87,72 @@ export async function sponsoredContractCall(
 }
 
 /**
- * Build and submit a sponsored STX transfer transaction
+ * High-level helper: build a sponsored STX transfer, submit to relay, and
+ * return a TransferResult. Resolves the API key and handles relay errors.
+ *
+ * This is the primary entry point for services that need sponsored STX transfers.
  */
-export async function transferStxSponsored(
-  options: SponsoredTransferOptions,
-  apiKey: string
-): Promise<SponsorRelayResponse> {
-  const networkName = getStacksNetwork(options.network);
+export async function sponsoredStxTransfer(
+  account: Account,
+  recipient: string,
+  amount: bigint,
+  memo: string | undefined,
+  network: Network
+): Promise<TransferResult> {
+  const apiKey = resolveSponsorApiKey(account);
 
+  const networkName = getStacksNetwork(network);
   const transaction = await makeSTXTokenTransfer({
-    recipient: options.recipient,
-    amount: options.amount,
-    senderKey: options.senderKey,
+    recipient,
+    amount,
+    senderKey: account.privateKey,
     network: networkName,
-    memo: options.memo || "",
+    memo: memo || "",
     sponsored: true,
     fee: 0n,
   });
 
   const serializedTx = transaction.serialize();
-  return submitToSponsorRelay(serializedTx, options.network, apiKey);
+  const response = await submitToSponsorRelay(serializedTx, network, apiKey);
+
+  if (!response.success) {
+    throw new Error(formatRelayError(response));
+  }
+
+  return { txid: response.txid!, rawTx: serializedTx };
+}
+
+/**
+ * High-level helper: build a sponsored contract deploy, submit to relay, and
+ * return a TransferResult. Resolves the API key and handles relay errors.
+ *
+ * This is the primary entry point for services that need sponsored contract deployments.
+ */
+export async function sponsoredContractDeploy(
+  account: Account,
+  options: ContractDeployOptions,
+  network: Network
+): Promise<TransferResult> {
+  const apiKey = resolveSponsorApiKey(account);
+
+  const networkName = getStacksNetwork(network);
+  const transaction = await makeContractDeploy({
+    contractName: options.contractName,
+    codeBody: options.codeBody,
+    senderKey: account.privateKey,
+    network: networkName,
+    sponsored: true,
+    fee: 0n,
+  });
+
+  const serializedTx = transaction.serialize();
+  const response = await submitToSponsorRelay(serializedTx, network, apiKey);
+
+  if (!response.success) {
+    throw new Error(formatRelayError(response));
+  }
+
+  return { txid: response.txid!, rawTx: serializedTx };
 }
 
 /**

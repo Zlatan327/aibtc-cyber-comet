@@ -2,11 +2,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { PostConditionMode, PostCondition } from "@stacks/transactions";
 import { getAccount, NETWORK } from "../services/x402.service.js";
-import { callContract, deployContract } from "../transactions/builder.js";
+import { callContract, deployContract, type TransferResult } from "../transactions/builder.js";
+import { sponsoredContractCall, sponsoredContractDeploy } from "../transactions/sponsor-builder.js";
 import { parseArgToClarityValue } from "../transactions/clarity-values.js";
 import { getHiroApi, getTransactionStatus } from "../services/hiro-api.js";
 import { getExplorerTxUrl } from "../config/networks.js";
 import { createJsonResponse, createErrorResponse, resolveFee } from "../utils/index.js";
+import { sponsoredSchema } from "./schemas.js";
 import {
   createStxPostCondition,
   createContractStxPostCondition,
@@ -131,21 +133,21 @@ Post conditions constrain what assets the transaction can move. Each condition i
         fee: z
           .string()
           .optional()
-          .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. If omitted, auto-estimated."),
+          .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. If omitted, auto-estimated. Ignored when sponsored=true."),
+        sponsored: sponsoredSchema,
       },
     },
-    async ({ contractAddress, contractName, functionName, functionArgs, postConditionMode, postConditions, fee }) => {
+    async ({ contractAddress, contractName, functionName, functionArgs, postConditionMode, postConditions, fee, sponsored }) => {
       try {
         const account = await getAccount();
         const clarityArgs = functionArgs.map(parseArgToClarityValue);
-        const resolvedFee = await resolveFee(fee, NETWORK, "contract_call");
 
         // Parse post conditions if provided
         const parsedPostConditions = postConditions
           ? postConditions.map(parsePostCondition)
           : undefined;
 
-        const result = await callContract(account, {
+        const contractCallOptions = {
           contractAddress,
           contractName,
           functionName,
@@ -153,8 +155,19 @@ Post conditions constrain what assets the transaction can move. Each condition i
           postConditionMode:
             postConditionMode === "allow" ? PostConditionMode.Allow : PostConditionMode.Deny,
           ...(parsedPostConditions && { postConditions: parsedPostConditions }),
-          ...(resolvedFee !== undefined && { fee: resolvedFee }),
-        });
+        };
+
+        let result: TransferResult;
+        if (sponsored) {
+          // Sponsored: relay pays gas fees, so fee parameter is ignored
+          result = await sponsoredContractCall(account, contractCallOptions, NETWORK);
+        } else {
+          const resolvedFee = await resolveFee(fee, NETWORK, "contract_call");
+          result = await callContract(account, {
+            ...contractCallOptions,
+            ...(resolvedFee !== undefined && { fee: resolvedFee }),
+          });
+        }
 
         return createJsonResponse({
           success: true,
@@ -164,6 +177,7 @@ Post conditions constrain what assets the transaction can move. Each condition i
           args: functionArgs,
           network: NETWORK,
           explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
+          ...(sponsored && { sponsored: true }),
         });
       } catch (error) {
         return createErrorResponse(error);
@@ -182,18 +196,26 @@ Post conditions constrain what assets the transaction can move. Each condition i
         fee: z
           .string()
           .optional()
-          .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. If omitted, auto-estimated."),
+          .describe("Optional fee: 'low' | 'medium' | 'high' preset or micro-STX amount. If omitted, auto-estimated. Ignored when sponsored=true."),
+        sponsored: sponsoredSchema,
       },
     },
-    async ({ contractName, codeBody, fee }) => {
+    async ({ contractName, codeBody, fee, sponsored }) => {
       try {
         const account = await getAccount();
-        const resolvedFee = await resolveFee(fee, NETWORK, "smart_contract");
-        const result = await deployContract(account, {
-          contractName,
-          codeBody,
-          ...(resolvedFee !== undefined && { fee: resolvedFee }),
-        });
+
+        let result: TransferResult;
+        if (sponsored) {
+          // Sponsored: relay pays gas fees, so fee parameter is ignored
+          result = await sponsoredContractDeploy(account, { contractName, codeBody }, NETWORK);
+        } else {
+          const resolvedFee = await resolveFee(fee, NETWORK, "smart_contract");
+          result = await deployContract(account, {
+            contractName,
+            codeBody,
+            ...(resolvedFee !== undefined && { fee: resolvedFee }),
+          });
+        }
 
         return createJsonResponse({
           success: true,
@@ -201,6 +223,7 @@ Post conditions constrain what assets the transaction can move. Each condition i
           contractId: `${account.address}.${contractName}`,
           network: NETWORK,
           explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
+          ...(sponsored && { sponsored: true }),
         });
       } catch (error) {
         return createErrorResponse(error);
