@@ -17,8 +17,10 @@ import {
   TX_OVERHEAD_VBYTES,
   DUST_THRESHOLD,
   P2TR_INPUT_BASE_VBYTES,
+  WITNESS_OVERHEAD_VBYTES,
 } from "../config/bitcoin-constants.js";
 import type { UTXO } from "../services/mempool-api.js";
+import { getBtcNetwork } from "./bitcoin-builder.js";
 
 /**
  * Inscription data structure
@@ -32,6 +34,24 @@ export interface InscriptionData {
    * Content body as Uint8Array
    */
   body: Uint8Array;
+}
+
+/**
+ * Options for deriving the reveal script from inscription data
+ */
+export interface DeriveRevealScriptOptions {
+  /**
+   * Inscription data to encode in the script
+   */
+  inscription: InscriptionData;
+  /**
+   * Sender's public key (compressed, 33 bytes)
+   */
+  senderPubKey: Uint8Array;
+  /**
+   * Network (mainnet or testnet)
+   */
+  network: Network;
 }
 
 /**
@@ -142,12 +162,42 @@ export interface BuildRevealTransactionResult {
   outputAmount: number;
 }
 
-
 /**
- * Get the @scure/btc-signer network object for a network name
+ * Derive the Taproot P2TR reveal script from inscription data and sender public key.
+ *
+ * This is the deterministic portion of the commit/reveal setup: given the same
+ * inscription content and sender key, it always produces the same reveal address.
+ * Both `buildCommitTransaction` and the `inscribe_reveal` tool call this to obtain
+ * the reveal script without coupling through a full commit transaction build.
+ *
+ * @param options - Inscription data, sender public key, and network
+ * @returns Taproot P2TR output ready for use in the reveal transaction
+ * @throws Error if the reveal address cannot be generated
  */
-function getBtcNetwork(network: Network): typeof btc.NETWORK {
-  return network === "testnet" ? btc.TEST_NETWORK : btc.NETWORK;
+export function deriveRevealScript(
+  options: DeriveRevealScriptOptions
+): ReturnType<typeof btc.p2tr> {
+  const { inscription, senderPubKey, network } = options;
+
+  const btcNetwork = getBtcNetwork(network);
+  const inscriptionData = {
+    tags: { contentType: inscription.contentType },
+    body: inscription.body,
+  };
+
+  // Convert compressed pubkey (33 bytes) to x-only pubkey (32 bytes) for Taproot
+  const xOnlyPubkey = senderPubKey.slice(1);
+
+  const revealScriptData = p2tr_ord_reveal(xOnlyPubkey, [inscriptionData]);
+
+  // Create P2TR output for script-path spending
+  const p2trReveal = btc.p2tr(xOnlyPubkey, revealScriptData, btcNetwork, true);
+
+  if (!p2trReveal.address) {
+    throw new Error("Failed to generate reveal address");
+  }
+
+  return p2trReveal;
 }
 
 /**
@@ -166,7 +216,6 @@ function getBtcNetwork(network: Network): typeof btc.NETWORK {
  * const inscription = {
  *   contentType: "text/plain",
  *   body: new TextEncoder().encode("Hello, Ordinals!"),
- *   compress: true,
  * };
  *
  * const result = buildCommitTransaction({
@@ -211,33 +260,14 @@ export function buildCommitTransaction(
     throw new Error("No confirmed UTXOs available");
   }
 
-  // Create inscription reveal script using micro-ordinals
-  // p2tr_ord_reveal returns { type: 'tr', script: Uint8Array }
+  // Derive the reveal script deterministically from inscription + sender key
+  const p2trReveal = deriveRevealScript({ inscription, senderPubKey, network });
   const btcNetwork = getBtcNetwork(network);
-  const inscriptionData = {
-    tags: { contentType: inscription.contentType },
-    body: inscription.body,
-  };
-
-  // Convert compressed pubkey (33 bytes) to x-only pubkey (32 bytes) for Taproot
-  // Compressed format: 1 byte prefix (02/03) + 32 bytes x-coordinate
-  const xOnlyPubkey = senderPubKey.slice(1);
-
-  const revealScriptData = p2tr_ord_reveal(xOnlyPubkey, [inscriptionData]);
-
-  // Create P2TR output from the reveal script
-  // For script path spending, we use the internal pubkey and the script tree
-  const p2trReveal = btc.p2tr(xOnlyPubkey, revealScriptData, btcNetwork, true);
-
-  if (!p2trReveal.address) {
-    throw new Error("Failed to generate reveal address");
-  }
 
   // Estimate reveal transaction size to determine commit amount
   // Reveal tx: 1 input (Taproot with inscription witness) + 1 output (recipient)
   // The witness includes the inscription data plus script & control-block overhead
-  const revealInputSize = P2TR_INPUT_BASE_VBYTES; // Taproot input base size (vbytes)
-  const WITNESS_OVERHEAD_VBYTES = 80; // Control block + script + protocol framing
+  const revealInputSize = P2TR_INPUT_BASE_VBYTES;
   const revealWitnessSize =
     Math.ceil((inscription.body.length / 4) * 1.25) + WITNESS_OVERHEAD_VBYTES;
   const revealTxSize = TX_OVERHEAD_VBYTES + revealInputSize + revealWitnessSize + P2TR_OUTPUT_VBYTES;
@@ -419,7 +449,7 @@ export function buildRevealTransaction(
       amount: BigInt(commitAmount),
     },
     // Include taproot script path info for script-path spending
-    ...revealScript.tapLeafScript,
+    tapLeafScript: revealScript.tapLeafScript,
   });
 
   // Add output to recipient (Taproot address)

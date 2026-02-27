@@ -126,7 +126,7 @@ export function estimateTxSize(inputCount: number, outputCount: number): number 
 /**
  * Get the @scure/btc-signer network object for a network name
  */
-function getBtcNetwork(network: Network): typeof btc.NETWORK {
+export function getBtcNetwork(network: Network): typeof btc.NETWORK {
   return network === "testnet" ? btc.TEST_NETWORK : btc.NETWORK;
 }
 

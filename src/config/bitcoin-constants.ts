@@ -35,3 +35,8 @@ export const DUST_THRESHOLD = 546;
  * Taproot input base size (vbytes) - without witness data
  */
 export const P2TR_INPUT_BASE_VBYTES = 57.5;
+
+/**
+ * Inscription witness overhead (vbytes) - control block, script, and protocol framing
+ */
+export const WITNESS_OVERHEAD_VBYTES = 80;
