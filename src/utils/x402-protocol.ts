@@ -4,6 +4,8 @@
  * No external x402 SDK dependency — all logic is self-contained.
  */
 
+import { randomUUID } from "crypto";
+
 // ===== Types =====
 
 /**
@@ -144,4 +146,42 @@ export function decodePaymentResponse(
   header: string | null | undefined
 ): SettlementResponseV2 | null {
   return decodeBase64Json<SettlementResponseV2>(header);
+}
+
+// ===== Payment Identifier Extension =====
+
+/**
+ * Typed shape of the payment-identifier extension for PaymentPayloadV2.extensions.
+ * Wire format: { "payment-identifier": { info: { id: "pay_<32-hex-chars>" } } }
+ *
+ * Validation rules enforced by the x402-sponsor-relay:
+ * - id: 16-128 chars, pattern [a-zA-Z0-9_-]+
+ * - Same id + same payload = cached response (idempotent retry)
+ * - Same id + different payload = 409 Conflict
+ */
+export interface PaymentIdentifierExtension {
+  [key: string]: unknown;
+  "payment-identifier": {
+    info: { id: string };
+  };
+}
+
+/**
+ * Generate a stable, unique payment identifier for use as an idempotency key.
+ * Format: "pay_<32 lowercase hex chars>" (36 chars total).
+ * Uses Node.js built-in crypto.randomUUID() with dashes stripped.
+ */
+export function generatePaymentId(): string {
+  const hex = randomUUID().replace(/-/g, "");
+  return `pay_${hex}`;
+}
+
+export function buildPaymentIdentifierExtension(
+  id: string
+): PaymentIdentifierExtension {
+  return {
+    "payment-identifier": {
+      info: { id },
+    },
+  };
 }

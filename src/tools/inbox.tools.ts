@@ -8,7 +8,7 @@ import {
   someCV,
   bufferCV,
 } from "@stacks/transactions";
-import { decodePaymentRequired, decodePaymentResponse, encodePaymentPayload, X402_HEADERS } from "../utils/x402-protocol.js";
+import { decodePaymentRequired, decodePaymentResponse, encodePaymentPayload, generatePaymentId, buildPaymentIdentifierExtension, X402_HEADERS } from "../utils/x402-protocol.js";
 import { getAccount, NETWORK } from "../services/x402.service.js";
 import { getSbtcService } from "../services/sbtc.service.js";
 import { getStacksNetwork, getExplorerTxUrl } from "../config/networks.js";
@@ -89,7 +89,7 @@ function advanceNonceCache(address: string, usedNonce: number): void {
  * Build a sponsored sBTC transfer transaction (signed, not broadcast).
  * The inbox API handles settlement via the x402 relay.
  * Explicit nonce avoids ConflictingNonceInMempool; optional memo (max 34 bytes)
- * varies the tx hex to bypass relay dedup cache on retries.
+ * can be used for on-chain labeling.
  */
 async function buildSponsoredSbtcTransfer(
   senderKey: string,
@@ -369,24 +369,25 @@ Use this instead of execute_x402_endpoint for inbox messages — the generic too
           }
 
           // Step 3: Fetch fresh nonce and build sponsored sBTC transfer.
-          // Memo suffix on retries varies the tx hex to bypass relay dedup cache.
           const nonce = await getNextNonce(account.address);
-          const memo = attempt > 0 ? `r${attempt}` : undefined;
           const txHex = await buildSponsoredSbtcTransfer(
             account.privateKey,
             account.address,
             accept.payTo,
             amount,
-            BigInt(nonce),
-            memo
+            BigInt(nonce)
           );
 
-          // Step 4: Encode PaymentPayloadV2
+          // Step 4: Encode PaymentPayloadV2 with payment-identifier extension.
+          // Each attempt gets a fresh paymentId since the tx hex changes per retry
+          // (fresh nonce). The relay treats same id + different payload as 409 Conflict.
+          const paymentId = generatePaymentId();
           paymentSignature = encodePaymentPayload({
             x402Version: 2,
             resource: paymentRequired.resource,
             accepted: accept,
             payload: { transaction: txHex },
+            extensions: buildPaymentIdentifierExtension(paymentId),
           });
 
           // Step 5: Send with payment header

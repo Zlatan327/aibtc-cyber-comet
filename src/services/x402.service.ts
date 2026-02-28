@@ -10,6 +10,8 @@ import {
 import {
   decodePaymentRequired,
   encodePaymentPayload,
+  generatePaymentId,
+  buildPaymentIdentifierExtension,
   X402_HEADERS,
 } from "../utils/x402-protocol.js";
 import { generateWallet, getStxAddress } from "@stacks/wallet-sdk";
@@ -232,12 +234,17 @@ export async function createApiClient(baseUrl?: string): Promise<AxiosInstance> 
 
         const txHex = "0x" + transaction.serialize();
 
+        // Generate a stable idempotency key for this logical request.
+        // The relay uses it to deduplicate retries without requiring tx hex variation.
+        const paymentId = generatePaymentId();
+
         // Encode PaymentPayloadV2 into payment-signature header
         const encodedPayload = encodePaymentPayload({
           x402Version: 2,
           resource: paymentRequired.resource,
           accepted: selectedOption,
           payload: { transaction: txHex },
+          extensions: buildPaymentIdentifierExtension(paymentId),
         });
 
         // Retry the original request with the payment header
