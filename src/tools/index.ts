@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 // Layer 1: Bitcoin L1 (Primary)
 import { registerBitcoinTools } from "./bitcoin.tools.js";
 import { registerOrdinalsTools } from "./ordinals.tools.js";
+import { registerChildInscriptionTools } from "./child-inscription.tools.js";
 import { registerPsbtTools } from "./psbt.tools.js";
 import { registerWalletTools } from "./wallet.tools.js";
 import { registerWalletManagementTools } from "./wallet-management.tools.js";
@@ -53,6 +54,7 @@ export function registerAllTools(server: McpServer): void {
   // =========================================================================
   registerBitcoinTools(server);
   registerOrdinalsTools(server);
+  registerChildInscriptionTools(server);
   registerPsbtTools(server);
   registerWalletTools(server);
   registerWalletManagementTools(server);
