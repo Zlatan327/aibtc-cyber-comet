@@ -9,11 +9,8 @@ import {
   principalCV,
   broadcastTransaction,
   makeContractCall,
-  listCV,
-  tupleCV,
   noneCV,
   someCV,
-  bufferCV,
 } from "@stacks/transactions";
 import { STACKS_MAINNET } from "@stacks/network";
 import { AlexSDK, Currency, type TokenInfo } from "alex-sdk";
@@ -24,7 +21,8 @@ import {
   parseContractId,
   type Network,
   ZEST_ASSETS,
-  ZEST_ASSETS_LIST,
+  ZEST_V2_MARKET,
+  ZEST_V2_MARKET_VAULT,
   type ZestAssetConfig,
 } from "../config/index.js";
 import { callContract, type Account, type TransferResult } from "../transactions/builder.js";
@@ -71,7 +69,7 @@ export interface ZestMarketInfo {
 
 export interface ZestUserPosition {
   asset: string;
-  supplied: string;
+  suppliedShares: string;
   borrowed: string;
   healthFactor?: string;
 }
@@ -358,13 +356,12 @@ export class AlexDexService {
 }
 
 // ============================================================================
-// Zest Protocol Service
+// Zest Protocol v2 Service
 // ============================================================================
 
 export class ZestProtocolService {
   private hiro: HiroApiService;
   private contracts: ReturnType<typeof getZestContracts>;
-  private assetsListCache: ClarityValue | null = null;
 
   constructor(private network: Network) {
     this.hiro = getHiroApi(network);
@@ -399,90 +396,7 @@ export class ZestProtocolService {
   }
 
   /**
-   * Build the assets-list CV required for borrow/withdraw operations
-   * This is a list of tuples containing (asset, lp-token, oracle) for all supported assets
-   * Result is cached since ZEST_ASSETS_LIST is static
-   */
-  private buildAssetsListCV(): ClarityValue {
-    if (this.assetsListCache) {
-      return this.assetsListCache;
-    }
-
-    this.assetsListCache = listCV(
-      ZEST_ASSETS_LIST.map((asset) => {
-        const [assetAddr, assetName] = parseContractIdTuple(asset.token);
-        const [lpAddr, lpName] = parseContractIdTuple(asset.lpToken);
-        const [oracleAddr, oracleName] = parseContractIdTuple(asset.oracle);
-
-        return tupleCV({
-          asset: contractPrincipalCV(assetAddr, assetName),
-          "lp-token": contractPrincipalCV(lpAddr, lpName),
-          oracle: contractPrincipalCV(oracleAddr, oracleName),
-        });
-      })
-    );
-
-    return this.assetsListCache;
-  }
-
-  /**
-   * Pyth price feed IDs used by Zest's oracle contracts.
-   * BTC and STX feeds cover all current Zest assets.
-   */
-  // BTC/USD and STX/USD are sufficient for all current Zest assets.
-  // Stablecoin assets (aeUSDC, sUSDT, USDA, USDh) use on-chain fixed-price oracles
-  // rather than Pyth feeds, so no additional feed IDs are needed here.
-  private static PYTH_FEED_IDS = [
-    "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43", // BTC/USD
-    "0xec7a775f46379b5e943c3526b1c8d54cd49749176b0b98e02dde68d1bd335c17", // STX/USD
-  ];
-
-  private priceFeedCache: { value: ClarityValue; timestamp: number } | null = null;
-  private static PRICE_FEED_TTL_MS = 30_000; // 30s cache — oracle rejects >360s
-
-  /**
-   * Fetch fresh Pyth price update VAA from Hermes API.
-   * Caches for 30s to avoid redundant requests when multiple ops run in sequence.
-   * Returns someCV(bufferCV(...)) for the price-feed-bytes parameter,
-   * or noneCV() if the fetch fails (graceful degradation).
-   */
-  private async fetchPriceFeedBytes(): Promise<ClarityValue> {
-    if (this.priceFeedCache && Date.now() - this.priceFeedCache.timestamp < ZestProtocolService.PRICE_FEED_TTL_MS) {
-      return this.priceFeedCache.value;
-    }
-    try {
-      const ids = ZestProtocolService.PYTH_FEED_IDS
-        .map((id) => `ids[]=${id}`)
-        .join("&");
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5_000);
-      const res = await fetch(
-        `https://hermes.pyth.network/v2/updates/price/latest?${ids}&encoding=hex`,
-        { signal: controller.signal }
-      );
-      clearTimeout(timeout);
-      if (!res.ok) {
-        console.warn(`Pyth Hermes returned HTTP ${res.status}, falling back to noneCV()`);
-        return noneCV();
-      }
-      const data = await res.json() as { binary?: { data?: string[] } };
-      const hex = data?.binary?.data?.[0];
-      if (!hex) {
-        console.warn("Pyth Hermes response missing binary data, falling back to noneCV()");
-        return noneCV();
-      }
-      const value = someCV(bufferCV(Buffer.from(hex, "hex")));
-      this.priceFeedCache = { value, timestamp: Date.now() };
-      return value;
-    } catch (err) {
-      console.warn("Failed to fetch Pyth price feed, falling back to noneCV():", err);
-      return noneCV();
-    }
-  }
-
-  /**
-   * Get all supported assets from Zest Protocol
-   * Returns the hardcoded asset list with full metadata
+   * Get all supported assets from Zest Protocol v2
    */
   async getAssets(): Promise<ZestAsset[]> {
     this.ensureMainnet();
@@ -499,21 +413,16 @@ export class ZestProtocolService {
    * Resolve an asset symbol or contract ID to a full contract ID
    */
   async resolveAsset(assetOrSymbol: string): Promise<string> {
-    // If it looks like a contract ID, return as-is
     if (assetOrSymbol.includes(".")) {
       return assetOrSymbol;
     }
-
     const config = this.getAssetConfig(assetOrSymbol);
     return config.token;
   }
 
   /**
-   * Get user's reserve/position data for an asset.
-   *
-   * Supply positions are tracked as LP token balances (e.g. zsbtc-v2-0.get-balance),
-   * not in pool-0-reserve-v2-0.get-user-reserve-data which only tracks borrow-side debt.
-   * Borrow positions are read from get-user-reserve-data.principal-borrow-balance.
+   * Get user's full position on Zest v2 via the data helper contract.
+   * Returns collateral, debt, health factor, and LTV data in a single call.
    */
   async getUserPosition(
     asset: string,
@@ -521,111 +430,216 @@ export class ZestProtocolService {
   ): Promise<ZestUserPosition | null> {
     this.ensureMainnet();
 
-    // Look up the asset config to find the LP token contract
-    const assetConfig = Object.values(ZEST_ASSETS).find(
-      (a) => a.token === asset
-    );
+    const assetConfig = this.getAssetConfig(asset);
 
-    // Read supply position from LP token balance
-    let supplied = "0";
-    if (assetConfig) {
-      try {
-        const lpResult = await this.hiro.callReadOnlyFunction(
-          assetConfig.lpToken,
-          "get-balance",
-          [principalCV(userAddress)],
-          userAddress
-        );
-
-        if (lpResult.okay && lpResult.result) {
-          const lpDecoded = cvToJSON(hexToCV(lpResult.result));
-          // get-balance returns (response uint uint) — success value is the balance
-          if (lpDecoded?.success && lpDecoded.value?.value !== undefined) {
-            supplied = lpDecoded.value.value;
-          } else if (lpDecoded?.value !== undefined && typeof lpDecoded.value === "string") {
-            supplied = lpDecoded.value;
-          }
-        }
-      } catch {
-        // LP token read failed; leave supplied as "0"
-      }
-    }
-
-    // Read borrow position from pool-borrow reserve data
-    let borrowed = "0";
-    if (assetConfig) try {
-      const borrowResult = await this.hiro.callReadOnlyFunction(
-        this.contracts!.poolBorrow,
-        "get-user-reserve-data",
-        [
-          principalCV(userAddress),
-          contractPrincipalCV(...parseContractIdTuple(assetConfig.token)),
-        ],
+    try {
+      const result = await this.hiro.callReadOnlyFunction(
+        this.contracts!.data,
+        "get-user-position",
+        [principalCV(userAddress)],
         userAddress
       );
 
-      if (borrowResult.okay && borrowResult.result) {
-        const borrowDecoded = cvToJSON(hexToCV(borrowResult.result));
-        if (borrowDecoded && typeof borrowDecoded === "object") {
-          borrowed = borrowDecoded["principal-borrow-balance"]?.value || "0";
-        }
+      if (!result.okay || !result.result) {
+        return null;
       }
-    } catch {
-      // Borrow data read failed; leave borrowed as "0"
-    }
 
-    // Return null only if both reads produced nothing useful and asset config is unknown
-    if (!assetConfig && supplied === "0" && borrowed === "0") {
+      const decoded = cvToJSON(hexToCV(result.result));
+      if (!decoded || decoded.success === false) {
+        return null;
+      }
+
+      // Unwrap (ok ...) → tuple with nested .value from cvToJSON
+      const position = decoded.value?.value ?? decoded.value;
+      if (!position) {
+        return null;
+      }
+
+      // Extract collateral shares for this asset from collateral list
+      // collateral: list of { aid: uint, amount: uint }
+      // Collateral uses zToken IDs (assetId + 1): zSTX=1, zsBTC=3, zstSTX=5, etc.
+      const zTokenId = assetConfig.assetId + 1;
+      const collateralList: any[] = position["collateral"]?.value ?? [];
+      const collateralEntry = collateralList.find(
+        (c: any) => String(c.value?.aid?.value) === String(zTokenId)
+      );
+      const suppliedShares = collateralEntry?.value?.amount?.value ?? "0";
+
+      // Extract debt for this asset from debt list
+      // debt: list of { actual-debt: uint, asset-id: uint, ... }
+      const debtList: any[] = position["debt"]?.value ?? [];
+      const debtEntry = debtList.find(
+        (d: any) => String(d.value?.["asset-id"]?.value) === String(assetConfig.assetId)
+      );
+      const borrowed = debtEntry?.value?.["actual-debt"]?.value ?? "0";
+
+      return {
+        asset,
+        suppliedShares,
+        borrowed,
+        healthFactor: position["health-factor"]?.value,
+      };
+    } catch {
       return null;
     }
-
-    return {
-      asset,
-      supplied,
-      borrowed,
-    };
   }
 
   /**
-   * Supply assets to Zest lending pool via borrow-helper
+   * Get detailed per-asset supply balances via the data helper.
+   * Returns vault share balances, underlying equivalents, and market collateral.
+   */
+  async getUserSupplies(userAddress: string): Promise<Record<string, unknown> | null> {
+    this.ensureMainnet();
+
+    try {
+      const result = await this.hiro.callReadOnlyFunction(
+        this.contracts!.data,
+        "get-supplies-user",
+        [principalCV(userAddress)],
+        userAddress
+      );
+
+      if (!result.okay || !result.result) {
+        return null;
+      }
+
+      return cvToJSON(hexToCV(result.result));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Build post-conditions for a principal sending tokens.
+   * Handles wSTX (native STX transfers) vs FT transfers.
+   */
+  private buildSendPC(
+    principal: string,
+    amount: bigint,
+    assetConfig: ZestAssetConfig,
+    mode: "eq" | "lte"
+  ) {
+    if (assetConfig.isNativeStx) {
+      return mode === "eq"
+        ? Pc.principal(principal).willSendEq(amount).ustx()
+        : Pc.principal(principal).willSendLte(amount).ustx();
+    }
+    const builder = mode === "eq"
+      ? Pc.principal(principal).willSendEq(amount)
+      : Pc.principal(principal).willSendLte(amount);
+    return builder.ft(
+      assetConfig.token as `${string}.${string}`,
+      assetConfig.tokenAssetName!
+    );
+  }
+
+  /**
+   * Query the vault's convert-to-assets to predict underlying amount for a given share amount.
+   * Used to set accurate post-conditions for withdraw operations (shares appreciate over time).
+   */
+  private async getExpectedUnderlying(
+    assetConfig: ZestAssetConfig,
+    shares: bigint,
+    senderAddress: string
+  ): Promise<bigint> {
+    try {
+      const result = await this.hiro.callReadOnlyFunction(
+        assetConfig.vault,
+        "convert-to-assets",
+        [uintCV(shares)],
+        senderAddress
+      );
+      if (result.okay && result.result) {
+        const decoded = cvToJSON(hexToCV(result.result));
+        const value = decoded?.value?.value ?? decoded?.value;
+        if (value !== undefined) {
+          return BigInt(value);
+        }
+      }
+    } catch {
+      // Fall back to shares as lower bound estimate
+    }
+    return shares;
+  }
+
+  /**
+   * Query the vault's convert-to-shares to predict zToken amount for a given underlying amount.
+   * Used to set accurate post-conditions for supply operations.
+   */
+  private async getExpectedShares(
+    assetConfig: ZestAssetConfig,
+    amount: bigint,
+    senderAddress: string
+  ): Promise<bigint> {
+    try {
+      const result = await this.hiro.callReadOnlyFunction(
+        assetConfig.vault,
+        "convert-to-shares",
+        [uintCV(amount)],
+        senderAddress
+      );
+      if (result.okay && result.result) {
+        const decoded = cvToJSON(hexToCV(result.result));
+        const value = decoded?.value?.value ?? decoded?.value;
+        if (value !== undefined) {
+          return BigInt(value);
+        }
+      }
+    } catch {
+      // Fall back to amount as upper bound
+    }
+    return amount;
+  }
+
+  /**
+   * Supply assets to Zest v2 via market's supply-collateral-add.
+   * Atomically deposits into vault and adds zTokens as collateral.
+   * This earns yield AND provides borrowing power.
    *
-   * Contract signature: supply(lp, pool-reserve, asset, amount, owner, referral, incentives)
+   * Token flow (3 ft-transfers):
+   * 1. user → market (underlying)
+   * 2. market → vault (underlying)
+   * 3. user → market-vault (zTokens, minted to user then transferred)
+   *
+   * Contract: v0-4-market.supply-collateral-add(ft, amount, min-shares, price-feeds)
    */
   async supply(
     account: Account,
     asset: string,
     amount: bigint,
-    onBehalfOf?: string
   ): Promise<TransferResult> {
     this.ensureMainnet();
 
     const assetConfig = this.getAssetConfig(asset);
-    const { address, name } = parseContractId(this.contracts!.borrowHelper);
-    const [lpAddr, lpName] = parseContractIdTuple(assetConfig.lpToken);
+    const { address, name } = parseContractId(this.contracts!.market);
     const [assetAddr, assetName] = parseContractIdTuple(assetConfig.token);
-    const [incentivesAddr, incentivesName] = parseContractIdTuple(this.contracts!.incentives);
+
+    // Pre-query expected zToken shares for accurate post-conditions
+    const expectedShares = await this.getExpectedShares(assetConfig, amount, account.address);
 
     const functionArgs: ClarityValue[] = [
-      contractPrincipalCV(lpAddr, lpName),                    // lp
-      principalCV(this.contracts!.poolReserve),               // pool-reserve
-      contractPrincipalCV(assetAddr, assetName),              // asset
-      uintCV(amount),                                         // amount
-      principalCV(onBehalfOf || account.address),             // owner
-      noneCV(),                                               // referral (none for now)
-      contractPrincipalCV(incentivesAddr, incentivesName),    // incentives
+      contractPrincipalCV(assetAddr, assetName),  // ft (underlying token)
+      uintCV(amount),                              // amount
+      uintCV(expectedShares > 0n ? (expectedShares * 95n) / 100n : 0n),  // min-shares (5% slippage tolerance)
+      noneCV(),                                    // price-feeds (use cached)
     ];
 
-    // Post-condition: user will send the asset
+    // Post-conditions for all 3 ft-transfers:
+    // 1. User sends underlying → market
+    // 2. Market forwards underlying → vault
+    // 3. User sends minted zTokens → market-vault (as collateral)
     const postConditions = [
+      this.buildSendPC(account.address, amount, assetConfig, "eq"),
+      this.buildSendPC(ZEST_V2_MARKET, amount, assetConfig, "lte"),
       Pc.principal(account.address)
-        .willSendEq(amount)
-        .ft(assetConfig.token as `${string}.${string}`, assetName),
+        .willSendLte(expectedShares)
+        .ft(assetConfig.vault as `${string}.${string}`, "zft"),
     ];
 
     return callContract(account, {
       contractAddress: address,
       contractName: name,
-      functionName: "supply",
+      functionName: "supply-collateral-add",
       functionArgs,
       postConditionMode: PostConditionMode.Deny,
       postConditions,
@@ -633,9 +647,17 @@ export class ZestProtocolService {
   }
 
   /**
-   * Withdraw assets from Zest lending pool via borrow-helper
+   * Withdraw assets from Zest v2 via market's collateral-remove-redeem.
+   * Atomically removes zToken collateral and redeems for underlying.
    *
-   * Contract signature: withdraw(lp, pool-reserve, asset, oracle, amount, owner, assets, incentives, price-feed-bytes)
+   * Token flow (3 ft-transfers):
+   * 1. market-vault → market (zTokens released from collateral)
+   * 2. market → vault (zTokens for redemption/burn)
+   * 3. vault → user (underlying redeemed)
+   *
+   * Contract: v0-4-market.collateral-remove-redeem(ft, amount, min-underlying, receiver, price-feeds)
+   *
+   * @param amount - Amount in zToken shares to withdraw
    */
   async withdraw(
     account: Account,
@@ -645,48 +667,39 @@ export class ZestProtocolService {
     this.ensureMainnet();
 
     const assetConfig = this.getAssetConfig(asset);
-    const { address, name } = parseContractId(this.contracts!.borrowHelper);
-    const [assetAddr, assetName] = parseContractIdTuple(assetConfig.token);
-    const [lpAddr, lpName] = parseContractIdTuple(assetConfig.lpToken);
-    const [oracleAddr, oracleName] = parseContractIdTuple(assetConfig.oracle);
-    const [incentivesAddr, incentivesName] = parseContractIdTuple(this.contracts!.incentives);
+    const { address, name } = parseContractId(this.contracts!.market);
+    const [vaultAddr, vaultName] = parseContractIdTuple(assetConfig.vault);
 
-    const priceFeedBytes = await this.fetchPriceFeedBytes();
+    // Pre-query: how much underlying will we get for these shares?
+    // Shares appreciate over time, so underlying > shares amount.
+    const expectedUnderlying = await this.getExpectedUnderlying(assetConfig, amount, account.address);
 
     const functionArgs: ClarityValue[] = [
-      contractPrincipalCV(lpAddr, lpName),                    // lp
-      principalCV(this.contracts!.poolReserve),               // pool-reserve
-      contractPrincipalCV(assetAddr, assetName),              // asset
-      contractPrincipalCV(oracleAddr, oracleName),            // oracle
-      uintCV(amount),                                         // amount
-      principalCV(account.address),                           // owner
-      this.buildAssetsListCV(),                               // assets
-      contractPrincipalCV(incentivesAddr, incentivesName),    // incentives
-      priceFeedBytes,                                          // price-feed-bytes (Pyth VAA)
+      contractPrincipalCV(vaultAddr, vaultName),  // ft (zToken / vault contract, NOT underlying)
+      uintCV(amount),                              // amount (zToken shares)
+      uintCV(expectedUnderlying > 0n ? (expectedUnderlying * 95n) / 100n : 0n),  // min-underlying (5% slippage tolerance)
+      noneCV(),                                    // receiver (none = tx-sender)
+      noneCV(),                                    // price-feeds (use cached)
     ];
 
-    // Post-conditions:
-    // 1. pool-vault sends us the withdrawn asset (not pool-reserve)
-    // 2. sender pays small STX fee for Pyth oracle update (~2 uSTX)
-    // 3. sender burns LP tokens (zsbtc etc.)
-    // LP tokens are minted 1:1 with supplied amount, so burning ≤ withdraw amount is safe.
-    const [lpFtContract, lpFtAssetName] = assetConfig.lpFungibleToken.split("::");
+    // Post-conditions (Deny mode requires ALL ft-transfers to be covered):
+    // 1. market-vault transfers zTokens (collateral release)
+    // 2. market transfers zTokens (internal accounting)
+    // 3. vault sends underlying → user (redemption, amount = convert-to-assets result)
     const postConditions = [
-      Pc.principal(this.contracts!.poolVault as `${string}.${string}`)
+      Pc.principal(ZEST_V2_MARKET_VAULT as `${string}.${string}`)
         .willSendLte(amount)
-        .ft(assetConfig.token as `${string}.${string}`, assetName),
-      Pc.principal(account.address)
-        .willSendLte(100n)
-        .ustx(),
-      Pc.principal(account.address)
+        .ft(assetConfig.vault as `${string}.${string}`, "zft"),
+      Pc.principal(ZEST_V2_MARKET as `${string}.${string}`)
         .willSendLte(amount)
-        .ft(lpFtContract as `${string}.${string}`, lpFtAssetName),
+        .ft(assetConfig.vault as `${string}.${string}`, "zft"),
+      this.buildSendPC(assetConfig.vault, expectedUnderlying, assetConfig, "lte"),
     ];
 
     return callContract(account, {
       contractAddress: address,
       contractName: name,
-      functionName: "withdraw",
+      functionName: "collateral-remove-redeem",
       functionArgs,
       postConditionMode: PostConditionMode.Deny,
       postConditions,
@@ -694,9 +707,13 @@ export class ZestProtocolService {
   }
 
   /**
-   * Borrow assets from Zest lending pool via borrow-helper
+   * Borrow assets from Zest v2 via market's borrow function.
+   * Requires sufficient collateral to maintain healthy LTV.
    *
-   * Contract signature: borrow(pool-reserve, oracle, asset-to-borrow, lp, assets, amount, fee-calculator, interest-rate-mode, owner, price-feed-bytes)
+   * Token flow (1 ft-transfer):
+   * 1. vault → user (borrowed underlying)
+   *
+   * Contract: v0-4-market.borrow(ft, amount, receiver, price-feeds)
    */
   async borrow(
     account: Account,
@@ -706,36 +723,19 @@ export class ZestProtocolService {
     this.ensureMainnet();
 
     const assetConfig = this.getAssetConfig(asset);
-    const { address, name } = parseContractId(this.contracts!.borrowHelper);
+    const { address, name } = parseContractId(this.contracts!.market);
     const [assetAddr, assetName] = parseContractIdTuple(assetConfig.token);
-    const [lpAddr, lpName] = parseContractIdTuple(assetConfig.lpToken);
-    const [oracleAddr, oracleName] = parseContractIdTuple(assetConfig.oracle);
-
-    const priceFeedBytes = await this.fetchPriceFeedBytes();
 
     const functionArgs: ClarityValue[] = [
-      principalCV(this.contracts!.poolReserve),               // pool-reserve
-      contractPrincipalCV(oracleAddr, oracleName),            // oracle
-      contractPrincipalCV(assetAddr, assetName),              // asset-to-borrow
-      contractPrincipalCV(lpAddr, lpName),                    // lp
-      this.buildAssetsListCV(),                               // assets
-      uintCV(amount),                                         // amount-to-be-borrowed
-      principalCV(this.contracts!.feesCalculator),            // fee-calculator
-      uintCV(BigInt(0)),                                      // interest-rate-mode (0 = variable)
-      principalCV(account.address),                           // owner
-      priceFeedBytes,                                          // price-feed-bytes (Pyth VAA)
+      contractPrincipalCV(assetAddr, assetName),  // ft (token to borrow)
+      uintCV(amount),                              // amount
+      noneCV(),                                    // receiver (none = tx-sender)
+      noneCV(),                                    // price-feeds (use cached)
     ];
 
-    // Post-conditions:
-    // 1. pool-vault sends borrowed asset (not pool-reserve)
-    // 2. sender pays small STX fee for Pyth oracle update (~2 uSTX)
+    // Post-condition: vault sends borrowed underlying to user
     const postConditions = [
-      Pc.principal(this.contracts!.poolVault as `${string}.${string}`)
-        .willSendLte(amount)
-        .ft(assetConfig.token as `${string}.${string}`, assetName),
-      Pc.principal(account.address)
-        .willSendLte(100n)
-        .ustx(),
+      this.buildSendPC(assetConfig.vault, amount, assetConfig, "lte"),
     ];
 
     return callContract(account, {
@@ -749,9 +749,12 @@ export class ZestProtocolService {
   }
 
   /**
-   * Repay borrowed assets
+   * Repay borrowed assets on Zest v2.
    *
-   * Contract signature: repay(asset, amount-to-repay, on-behalf-of, payer)
+   * Token flow (1 ft-transfer):
+   * 1. user → vault (repayment, amount may be capped to actual debt on-chain)
+   *
+   * Contract: v0-4-market.repay(ft, amount, on-behalf-of)
    */
   async repay(
     account: Account,
@@ -762,21 +765,18 @@ export class ZestProtocolService {
     this.ensureMainnet();
 
     const assetConfig = this.getAssetConfig(asset);
-    const { address, name } = parseContractId(this.contracts!.poolBorrow);
+    const { address, name } = parseContractId(this.contracts!.market);
     const [assetAddr, assetName] = parseContractIdTuple(assetConfig.token);
 
     const functionArgs: ClarityValue[] = [
-      contractPrincipalCV(assetAddr, assetName),              // asset
-      uintCV(amount),                                         // amount-to-repay
-      principalCV(onBehalfOf || account.address),             // on-behalf-of
-      principalCV(account.address),                           // payer
+      contractPrincipalCV(assetAddr, assetName),                               // ft
+      uintCV(amount),                                                           // amount
+      onBehalfOf ? someCV(principalCV(onBehalfOf)) : noneCV(),                 // on-behalf-of
     ];
 
-    // Post-condition: user will send the asset to repay
+    // Post-condition: user sends repayment (use lte since contract may cap to actual debt)
     const postConditions = [
-      Pc.principal(account.address)
-        .willSendLte(amount)
-        .ft(assetConfig.token as `${string}.${string}`, assetName),
+      this.buildSendPC(account.address, amount, assetConfig, "lte"),
     ];
 
     return callContract(account, {
@@ -790,93 +790,87 @@ export class ZestProtocolService {
   }
 
   /**
-   * Claim accumulated rewards from Zest incentives program via borrow-helper
+   * Deposit directly into a Zest v2 vault for yield without collateral.
+   * Mints zTokens that earn supply yield. Simpler than supply-collateral-add
+   * but the zTokens won't be usable as collateral for borrowing.
    *
-   * Currently: sBTC suppliers earn wSTX rewards
+   * Token flow (1 ft-transfer):
+   * 1. user → vault (underlying)
+   * Note: zTokens minted to recipient (ft-mint, no PC needed)
    *
-   * Contract signature: claim-rewards(lp, pool-reserve, asset, oracle, owner, assets, reward-asset, incentives, price-feed-bytes)
+   * Contract: vault.deposit(amount, min-out, recipient)
    */
-  async claimRewards(
+  async depositToVault(
     account: Account,
-    asset: string
+    asset: string,
+    amount: bigint
   ): Promise<TransferResult> {
     this.ensureMainnet();
 
     const assetConfig = this.getAssetConfig(asset);
-    const { address, name } = parseContractId(this.contracts!.borrowHelper);
-    const [lpAddr, lpName] = parseContractIdTuple(assetConfig.lpToken);
-    const [assetAddr, assetName] = parseContractIdTuple(assetConfig.token);
-    const [oracleAddr, oracleName] = parseContractIdTuple(assetConfig.oracle);
-    const [incentivesAddr, incentivesName] = parseContractIdTuple(this.contracts!.incentives);
-    const [wstxAddr, wstxName] = parseContractIdTuple(this.contracts!.wstx);
-
-    // Pre-check: query pending rewards before broadcasting to avoid wasting gas
-    // when there are no rewards (on-chain tx would abort with ERR_NO_REWARDS)
-    const rewardsResult = await this.hiro.callReadOnlyFunction(
-      this.contracts!.incentives,
-      "get-vault-rewards",
-      [
-        principalCV(account.address),
-        contractPrincipalCV(assetAddr, assetName),
-        contractPrincipalCV(wstxAddr, wstxName),
-      ],
-      account.address
-    );
-
-    if (rewardsResult.okay && rewardsResult.result) {
-      const decoded = cvToJSON(hexToCV(rewardsResult.result));
-      // get-vault-rewards returns a bare uint, but handle (ok uint) / (response uint uint)
-      // defensively in case the contract is upgraded.
-      // Bare uint: { type: "uint", value: "123" }
-      // Response-wrapped: { type: "ok", value: { type: "uint", value: "123" } }
-      const rawValue =
-        typeof decoded?.value === "object" && decoded.value?.value !== undefined
-          ? decoded.value.value
-          : decoded?.value;
-
-      if (rawValue === undefined) {
-        // Can't decode response -- skip pre-check, let the on-chain tx decide
-      } else if (BigInt(rawValue) === 0n) {
-        throw new Error(
-          "No rewards available to claim. Skipping broadcast to avoid wasting gas."
-        );
-      }
-    } else if (!rewardsResult.okay) {
-      console.error(
-        `[zest] get-vault-rewards read-only call failed: ${rewardsResult.result ?? "unknown error"}. Skipping pre-check.`
-      );
-    }
-
-    const priceFeedBytes = await this.fetchPriceFeedBytes();
+    const { address, name } = parseContractId(assetConfig.vault);
 
     const functionArgs: ClarityValue[] = [
-      contractPrincipalCV(lpAddr, lpName),                    // lp
-      principalCV(this.contracts!.poolReserve),               // pool-reserve
-      contractPrincipalCV(assetAddr, assetName),              // asset
-      contractPrincipalCV(oracleAddr, oracleName),            // oracle
-      principalCV(account.address),                           // owner
-      this.buildAssetsListCV(),                               // assets
-      contractPrincipalCV(wstxAddr, wstxName),                // reward-asset (wSTX)
-      contractPrincipalCV(incentivesAddr, incentivesName),    // incentives
-      priceFeedBytes,                                          // price-feed-bytes (Pyth VAA)
+      uintCV(amount),                     // amount
+      uintCV(0n),                          // min-out (0 = no slippage protection)
+      principalCV(account.address),        // recipient
     ];
 
-    // Post-conditions:
-    // 1. pool reserve will send wSTX rewards to user
-    // 2. sender pays small STX fee for Pyth oracle update (~2 uSTX)
+    // Post-condition: user sends underlying token to vault
     const postConditions = [
-      Pc.principal(this.contracts!.poolReserve)
-        .willSendGte(0n)
-        .ft(this.contracts!.wstx as `${string}.${string}`, wstxName),
-      Pc.principal(account.address)
-        .willSendLte(100n)
-        .ustx(),
+      this.buildSendPC(account.address, amount, assetConfig, "eq"),
     ];
 
     return callContract(account, {
       contractAddress: address,
       contractName: name,
-      functionName: "claim-rewards",
+      functionName: "deposit",
+      functionArgs,
+      postConditionMode: PostConditionMode.Deny,
+      postConditions,
+    });
+  }
+
+  /**
+   * Redeem zTokens from a Zest v2 vault for underlying assets.
+   *
+   * Token flow:
+   * 1. user sends zTokens → vault (ft-burn, but transfer happens first)
+   * 2. vault sends underlying → recipient
+   *
+   * Contract: vault.redeem(amount, min-out, recipient)
+   *
+   * @param amount - Amount of zTokens to redeem
+   */
+  async redeemFromVault(
+    account: Account,
+    asset: string,
+    amount: bigint
+  ): Promise<TransferResult> {
+    this.ensureMainnet();
+
+    const assetConfig = this.getAssetConfig(asset);
+    const { address, name } = parseContractId(assetConfig.vault);
+
+    // Pre-query: shares → underlying (shares appreciate, so underlying > shares)
+    const expectedUnderlying = await this.getExpectedUnderlying(assetConfig, amount, account.address);
+
+    const functionArgs: ClarityValue[] = [
+      uintCV(amount),                     // amount (zToken shares)
+      uintCV(0n),                          // min-out (0 = no slippage protection)
+      principalCV(account.address),        // recipient
+    ];
+
+    // Post-conditions:
+    // 1. Vault sends underlying to user (amount from convert-to-assets)
+    const postConditions = [
+      this.buildSendPC(assetConfig.vault, expectedUnderlying, assetConfig, "lte"),
+    ];
+
+    return callContract(account, {
+      contractAddress: address,
+      contractName: name,
+      functionName: "redeem",
       functionArgs,
       postConditionMode: PostConditionMode.Deny,
       postConditions,

@@ -24,14 +24,17 @@ export const MAINNET_CONTRACTS = {
   ALEX_TOKEN: "SP102V8P0F7JX67ARQ77WEA3D3CFB5XW39REDT0AM.token-alex",
   ALEX_WSTX: "SP3K8BC0PPEVCV7NZ6QSRWPQ2JE9E5B6N3PA0KBR9.token-wstx-v2",
 
-  // Zest Protocol
-  ZEST_POOL_BORROW: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.pool-borrow-v2-4",
-  ZEST_BORROW_HELPER: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.borrow-helper-v2-1-7",
-  ZEST_POOL_RESERVE: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.pool-0-reserve-v2-0",
-  ZEST_POOL_VAULT: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.pool-vault",
-  ZEST_FEES_CALCULATOR: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.fees-calculator",
-  ZEST_INCENTIVES: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.incentives-v2-2",
-  ZEST_WSTX: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.wstx",
+  // Zest Protocol v2
+  ZEST_MARKET: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-4-market",
+  ZEST_DATA: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-1-data",
+  ZEST_MARKET_VAULT: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-market-vault",
+  ZEST_VAULT_STX: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-vault-stx",
+  ZEST_VAULT_SBTC: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-vault-sbtc",
+  ZEST_VAULT_STSTX: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-vault-ststx",
+  ZEST_VAULT_USDC: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-vault-usdc",
+  ZEST_VAULT_USDH: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-vault-usdh",
+  ZEST_VAULT_STSTXBTC: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.v0-vault-ststxbtc",
+  ZEST_WSTX: "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7.wstx",
 
   // ERC-8004 Identity & Reputation
   IDENTITY_REGISTRY: "SP1NMR7MY0TJ1QA7WQBZ6504KC79PZNTRQH4YGFJD.identity-registry-v2",
@@ -40,128 +43,88 @@ export const MAINNET_CONTRACTS = {
 } as const;
 
 /**
- * Zest Protocol asset configuration
- * Each asset has: token, lpToken, oracle, decimals, symbol
+ * Zest Protocol v2 asset configuration
+ * Each asset has: token, vault, assetId, decimals, symbol, name
  */
 export interface ZestAssetConfig {
   token: string;
-  lpToken: string;
-  lpFungibleToken: string; // FT contract::asset for LP token (e.g. "SP2VCQ...ZW1QF4N.zsbtc-token::zsbtc")
-  oracle: string;
+  /** FT asset name for the underlying (e.g. "sbtc-token" from sbtc-token::sbtc-token). null for wSTX which uses native STX transfers. */
+  tokenAssetName: string | null;
+  vault: string;
+  assetId: number; // v2 asset index from v0-1-data: STX=0, zSTX=1, sBTC=2, zsBTC=3, stSTX=4, etc. Evens=underlying, odds=zTokens
   decimals: number;
   symbol: string;
   name: string;
+  /** Whether the token uses native STX transfers (true for wSTX) */
+  isNativeStx: boolean;
 }
 
+export const ZEST_V2_DEPLOYER = "SP1A27KFY4XERQCCRCARCYD1CC5N7M6688BSYADJ7";
+export const ZEST_V2_MARKET = `${ZEST_V2_DEPLOYER}.v0-4-market`;
+export const ZEST_V2_MARKET_VAULT = `${ZEST_V2_DEPLOYER}.v0-market-vault`;
+
 export const ZEST_ASSETS: Record<string, ZestAssetConfig> = {
-  sBTC: {
-    token: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token",
-    lpToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zsbtc-v2-0",
-    lpFungibleToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zsbtc-token::zsbtc",
-    oracle: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.stx-btc-oracle-v1-4",
-    decimals: 8,
-    symbol: "sBTC",
-    name: "sBTC",
-  },
-  aeUSDC: {
-    token: "SP3Y2ZSH8P7D50B0VBTSX11S7XSG24M1VB9YFQA4K.token-aeusdc",
-    lpToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zaeusdc-v2-0",
-    lpFungibleToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zaeusdc-token::zaeusdc",
-    oracle: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.aeusdc-oracle-v1-0",
-    decimals: 6,
-    symbol: "aeUSDC",
-    name: "Aave USDC",
-  },
-  USDH: {
-    token: "SPN5AKG35QZSK2M8GAMR4AFX45659RJHDW353HSG.usdh-token-v1",
-    lpToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zusdh-v2-0",
-    lpFungibleToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zusdh-token::zusdh",
-    oracle: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.usdh-oracle-v1-0",
-    decimals: 8,
-    symbol: "USDH",
-    name: "USDH Stablecoin",
-  },
-  stSTX: {
-    token: "SP4SZE494VC2YC5JYG7AYFQ44F5Q4PYV7DVMDPBG.ststx-token",
-    lpToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zststx-v2-0",
-    lpFungibleToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zststx-token::zststx",
-    oracle: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.stx-btc-oracle-v1-4",
-    decimals: 6,
-    symbol: "stSTX",
-    name: "Stacked STX",
-  },
   wSTX: {
-    token: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.wstx",
-    lpToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zwstx-v2-0",
-    lpFungibleToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zwstx-token::zwstx",
-    oracle: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.stx-btc-oracle-v1-4",
+    token: `${ZEST_V2_DEPLOYER}.wstx`,
+    tokenAssetName: null, // uses native stx-transfer?, not ft-transfer?
+    vault: `${ZEST_V2_DEPLOYER}.v0-vault-stx`,
+    assetId: 0,
     decimals: 6,
     symbol: "wSTX",
     name: "Wrapped STX",
+    isNativeStx: true,
   },
-  sUSDT: {
-    token: "SP2XD7417HGPRTREMKF748VNEQPDRR0RMANB7X1NK.token-susdt",
-    lpToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zsusdt-v2-0",
-    lpFungibleToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zsusdt-token::zsusdt",
-    oracle: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.susdt-oracle-v1-0",
-    decimals: 6,
-    symbol: "sUSDT",
-    name: "Stacks USDT",
-  },
-  USDA: {
-    token: "SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR.usda-token",
-    lpToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zusda-v2-0",
-    lpFungibleToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zusda-token::zusda",
-    oracle: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.usda-oracle-v1-1",
-    decimals: 6,
-    symbol: "USDA",
-    name: "USDA Stablecoin",
-  },
-  DIKO: {
-    token: "SP2C2YFP12AJZB4MABJBAJ55XECVS7E4PMMZ89YZR.arkadiko-token",
-    lpToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zdiko-v2-0",
-    lpFungibleToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zdiko-token::zdiko",
-    oracle: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.diko-oracle-v1-1",
-    decimals: 6,
-    symbol: "DIKO",
-    name: "Arkadiko Token",
-  },
-  ALEX: {
-    token: "SP102V8P0F7JX67ARQ77WEA3D3CFB5XW39REDT0AM.token-alex",
-    lpToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zalex-v2-0",
-    lpFungibleToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zalex-token::zalex",
-    oracle: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.alex-oracle-v1-1",
+  sBTC: {
+    token: "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token",
+    tokenAssetName: "sbtc-token",
+    vault: `${ZEST_V2_DEPLOYER}.v0-vault-sbtc`,
+    assetId: 2,
     decimals: 8,
-    symbol: "ALEX",
-    name: "ALEX Token",
+    symbol: "sBTC",
+    name: "sBTC",
+    isNativeStx: false,
   },
-  "stSTX-BTC": {
-    token: "SP4SZE494VC2YC5JYG7AYFQ44F5Q4PYV7DVMDPBG.ststxbtc-token-v2",
-    lpToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zststxbtc-v2_v2-0",
-    lpFungibleToken: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.zststxbtc-v2-token::zststxbtc-v2",
-    oracle: "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.stx-btc-oracle-v1-4",
+  stSTX: {
+    token: "SP4SZE494VC2YC5JYG7AYFQ44F5Q4PYV7DVMDPBG.ststx-token",
+    tokenAssetName: "ststx",
+    vault: `${ZEST_V2_DEPLOYER}.v0-vault-ststx`,
+    assetId: 4,
     decimals: 6,
-    symbol: "stSTX-BTC",
+    symbol: "stSTX",
+    name: "Stacked STX",
+    isNativeStx: false,
+  },
+  USDC: {
+    token: "SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx",
+    tokenAssetName: "usdcx-token",
+    vault: `${ZEST_V2_DEPLOYER}.v0-vault-usdc`,
+    assetId: 6,
+    decimals: 6,
+    symbol: "USDC",
+    name: "USD Coin",
+    isNativeStx: false,
+  },
+  USDH: {
+    token: "SPN5AKG35QZSK2M8GAMR4AFX45659RJHDW353HSG.usdh-token-v1",
+    tokenAssetName: "usdh",
+    vault: `${ZEST_V2_DEPLOYER}.v0-vault-usdh`,
+    assetId: 8,
+    decimals: 8,
+    symbol: "USDH",
+    name: "USDH Stablecoin",
+    isNativeStx: false,
+  },
+  stSTXbtc: {
+    token: "SP4SZE494VC2YC5JYG7AYFQ44F5Q4PYV7DVMDPBG.ststxbtc-token-v2",
+    tokenAssetName: "ststxbtc",
+    vault: `${ZEST_V2_DEPLOYER}.v0-vault-ststxbtc`,
+    assetId: 10,
+    decimals: 6,
+    symbol: "stSTXbtc",
     name: "Stacked STX BTC",
+    isNativeStx: false,
   },
 };
-
-/**
- * Ordered list of Zest assets for building the assets-list parameter
- * Order matters for contract calls
- */
-export const ZEST_ASSETS_LIST: ZestAssetConfig[] = [
-  ZEST_ASSETS.stSTX,
-  ZEST_ASSETS.aeUSDC,
-  ZEST_ASSETS.wSTX,
-  ZEST_ASSETS.DIKO,
-  ZEST_ASSETS.USDH,
-  ZEST_ASSETS.sUSDT,
-  ZEST_ASSETS.USDA,
-  ZEST_ASSETS.sBTC,
-  ZEST_ASSETS.ALEX,
-  ZEST_ASSETS["stSTX-BTC"],
-];
 
 /**
  * Known contract addresses for testnet
@@ -240,18 +203,14 @@ export function getAlexContracts(network: Network) {
 }
 
 /**
- * Get Zest Protocol contract addresses for the network
+ * Get Zest Protocol v2 contract addresses for the network
  */
 export function getZestContracts(network: Network) {
   if (network === "mainnet") {
     return {
-      poolBorrow: MAINNET_CONTRACTS.ZEST_POOL_BORROW,
-      borrowHelper: MAINNET_CONTRACTS.ZEST_BORROW_HELPER,
-      poolReserve: MAINNET_CONTRACTS.ZEST_POOL_RESERVE,
-      poolVault: MAINNET_CONTRACTS.ZEST_POOL_VAULT,
-      feesCalculator: MAINNET_CONTRACTS.ZEST_FEES_CALCULATOR,
-      incentives: MAINNET_CONTRACTS.ZEST_INCENTIVES,
-      wstx: MAINNET_CONTRACTS.ZEST_WSTX,
+      market: MAINNET_CONTRACTS.ZEST_MARKET,
+      data: MAINNET_CONTRACTS.ZEST_DATA,
+      marketVault: MAINNET_CONTRACTS.ZEST_MARKET_VAULT,
     };
   }
   // Zest is mainnet-only currently

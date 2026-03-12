@@ -123,7 +123,7 @@ async function runCheck(account: Account, config: YieldHunterConfig, state: Yiel
 
   // Get current Zest position
   const position = await zest.getUserPosition(ZEST_ASSETS.sBTC.token, account.address);
-  const zestSupplied = position ? BigInt(position.supplied) : 0n;
+  const zestSupplied = position ? BigInt(position.suppliedShares) : 0n;
   log(`Zest supplied: ${formatSats(zestSupplied)}`);
 
   // Check if we should deposit
@@ -271,7 +271,7 @@ async function showStatus(): Promise<void> {
     const position = await zest.getUserPosition(ZEST_ASSETS.sBTC.token, activeWallet.address);
     if (position) {
       log(`\nCurrent Zest Position:`);
-      log(`  Supplied: ${formatSats(BigInt(position.supplied))}`);
+      log(`  Supplied (shares): ${formatSats(BigInt(position.suppliedShares))}`);
       log(`  Borrowed: ${formatSats(BigInt(position.borrowed))}`);
     }
 

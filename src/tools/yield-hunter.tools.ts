@@ -1,10 +1,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { cvToJSON, hexToCV, uintCV, contractPrincipalCV } from "@stacks/transactions";
+import { cvToJSON, hexToCV } from "@stacks/transactions";
 import { getAccount, getWalletAddress, NETWORK } from "../services/x402.service.js";
 import { getZestProtocolService } from "../services/defi.service.js";
 import { getHiroApi } from "../services/hiro-api.js";
-import { ZEST_ASSETS, MAINNET_CONTRACTS } from "../config/contracts.js";
+import { ZEST_ASSETS } from "../config/contracts.js";
 import { createJsonResponse, createErrorResponse, getSbtcBalance } from "../utils/index.js";
 
 // ============================================================================
@@ -125,20 +125,20 @@ function formatApy(bps: number): string {
 // ============================================================================
 
 /**
- * Fetch live APY from Zest Protocol on-chain
- * Reads from pool-0-reserve get-reserve-state
+ * Fetch live interest rate from Zest v2 on-chain
+ * Reads from the sBTC vault's get-interest-rate
  */
 async function fetchZestApy(): Promise<number> {
   try {
     const hiro = getHiroApi(NETWORK);
-    const [reserveAddr, reserveName] = MAINNET_CONTRACTS.ZEST_POOL_RESERVE.split(".");
-    const [sbtcAddr, sbtcName] = ZEST_ASSETS.sBTC.token.split(".");
+    const vaultContract = ZEST_ASSETS.sBTC.vault;
+    const [vaultAddr] = vaultContract.split(".");
 
     const result = await hiro.callReadOnlyFunction(
-      MAINNET_CONTRACTS.ZEST_POOL_RESERVE,
-      "get-reserve-state",
-      [contractPrincipalCV(sbtcAddr, sbtcName)],
-      reserveAddr
+      vaultContract,
+      "get-interest-rate",
+      [],
+      vaultAddr
     );
 
     if (!result.okay || !result.result) {
@@ -147,15 +147,11 @@ async function fetchZestApy(): Promise<number> {
     }
 
     const decoded = cvToJSON(hexToCV(result.result));
-    // Response is (response (tuple ...)) so we need .value.value to get the tuple fields
-    const data = decoded?.value?.value || decoded?.value || decoded;
-
-    // Extract liquidity rate (APY in 1e8 scale)
-    // e.g., 5000000 = 5% APY
-    const liquidityRate = data?.["current-liquidity-rate"]?.value;
-    if (liquidityRate) {
-      // Convert from 1e8 to basis points: rate / 1e8 * 10000 = rate / 1e4
-      const apyBps = Number(BigInt(liquidityRate) / 10000n);
+    const rateValue = decoded?.value?.value ?? decoded?.value;
+    if (rateValue) {
+      // v2 vault get-interest-rate returns rate in 1e8 scale (like v1 current-liquidity-rate)
+      // Divide by 10000 to convert to basis points (1 bps = 0.01%)
+      const apyBps = Number(BigInt(rateValue) / 10000n);
       state.stats.currentApy = apyBps;
       state.stats.lastApyFetch = new Date();
       return apyBps;
@@ -278,7 +274,7 @@ async function runYieldCheck(): Promise<void> {
       () => zest.getUserPosition(ZEST_ASSETS.sBTC.token, account.address),
       "Fetch Zest position"
     );
-    const zestSupplied = position ? BigInt(position.supplied) : 0n;
+    const zestSupplied = position ? BigInt(position.suppliedShares) : 0n;
     addLog("info", `Zest supplied: ${formatSats(zestSupplied)}`);
 
     // Calculate amount to deposit (keep reserve if configured)
@@ -675,7 +671,7 @@ async function getFullStatus() {
         fetchZestApy(),
       ]);
 
-      const zestSupplied = BigInt(position?.supplied || "0");
+      const zestSupplied = BigInt(position?.suppliedShares || "0");
       const availableToDeposit = walletBalance > state.config.reserve
         ? walletBalance - state.config.reserve
         : 0n;
@@ -691,7 +687,7 @@ async function getFullStatus() {
           availableToDepositFormatted: formatSats(availableToDeposit),
           reserve: state.config.reserve.toString(),
           reserveFormatted: formatSats(state.config.reserve),
-          zestSupplied: position?.supplied || "0",
+          zestSupplied: position?.suppliedShares || "0",
           zestSuppliedFormatted: formatSats(zestSupplied),
           zestBorrowed: position?.borrowed || "0",
         },

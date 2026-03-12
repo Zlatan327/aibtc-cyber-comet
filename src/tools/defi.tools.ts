@@ -214,19 +214,19 @@ Note: ALEX DEX is only available on mainnet.`,
   );
 
   // ==========================================================================
-  // Zest Protocol Tools
+  // Zest Protocol v2 Tools
   // ==========================================================================
 
   // List available assets
   server.registerTool(
     "zest_list_assets",
     {
-      description: `List all supported assets on Zest Protocol.
+      description: `List all supported assets on Zest Protocol v2.
 
 Returns the list of assets that can be supplied, borrowed, or used as collateral.
 Each asset includes its symbol, name, and contract ID.
 
-Use this to discover available assets before supplying or borrowing.
+Supported assets: wSTX, sBTC, stSTX, USDC, USDH, stSTXbtc.
 
 Note: Zest Protocol is only available on mainnet.`,
       inputSchema: {},
@@ -245,13 +245,15 @@ Note: Zest Protocol is only available on mainnet.`,
 
         return createJsonResponse({
           network: NETWORK,
+          version: "v2",
           assetCount: assets.length,
           assets: assets.map((a) => ({
             symbol: a.symbol,
             name: a.name,
             contractId: a.contractId,
+            decimals: a.decimals,
           })),
-          usage: "Use the symbol (e.g., 'stSTX') or full contract ID in other Zest commands",
+          usage: "Use the symbol (e.g., 'sBTC', 'USDC') or full contract ID in other Zest commands",
         });
       } catch (error) {
         return createErrorResponse(error);
@@ -263,14 +265,14 @@ Note: Zest Protocol is only available on mainnet.`,
   server.registerTool(
     "zest_get_position",
     {
-      description: `Get user's lending position on Zest Protocol.
+      description: `Get user's lending position on Zest Protocol v2.
 
-Returns supplied and borrowed amounts for a specific asset.
-You can use the asset symbol (e.g., 'stSTX') or full contract ID.
+Returns collateral, debt, health factor, and LTV data across all assets.
+The position query returns USD-denominated totals.
 
 Note: Zest Protocol is only available on mainnet.`,
       inputSchema: {
-        asset: z.string().describe("Asset symbol (e.g., 'stSTX', 'aeUSDC') or full contract ID"),
+        asset: z.string().default("sBTC").describe("Asset symbol (e.g., 'sBTC', 'USDC') or full contract ID"),
         address: z
           .string()
           .optional()
@@ -296,12 +298,13 @@ Note: Zest Protocol is only available on mainnet.`,
             address: userAddress,
             asset: resolvedAsset,
             position: null,
-            message: "No position found for this asset",
+            message: "No position found",
           });
         }
 
         return createJsonResponse({
           network: NETWORK,
+          version: "v2",
           address: userAddress,
           position,
         });
@@ -311,26 +314,25 @@ Note: Zest Protocol is only available on mainnet.`,
     }
   );
 
-  // Supply to Zest
+  // Supply to Zest v2
   server.registerTool(
     "zest_supply",
     {
-      description: `Supply assets to Zest Protocol lending pool.
+      description: `Supply assets to Zest Protocol v2.
 
-Deposits assets to earn interest from borrowers.
-You can use the asset symbol (e.g., 'stSTX') or full contract ID.
+Deposits assets and adds them as collateral in one atomic operation.
+The supplied assets earn yield AND provide borrowing power.
+You can use the asset symbol (e.g., 'sBTC', 'USDC') or full contract ID.
+
+Supported assets: wSTX, sBTC, stSTX, USDC, USDH, stSTXbtc.
 
 Note: Zest Protocol is only available on mainnet.`,
       inputSchema: {
-        asset: z.string().describe("Asset symbol (e.g., 'stSTX', 'aeUSDC') or full contract ID"),
+        asset: z.string().describe("Asset symbol (e.g., 'sBTC', 'USDC') or full contract ID"),
         amount: z.string().describe("Amount to supply (in smallest units)"),
-        onBehalfOf: z
-          .string()
-          .optional()
-          .describe("Optional: supply on behalf of another address"),
       },
     },
-    async ({ asset, amount, onBehalfOf }) => {
+    async ({ asset, amount }) => {
       try {
         if (NETWORK !== "mainnet") {
           return createJsonResponse({
@@ -346,7 +348,6 @@ Note: Zest Protocol is only available on mainnet.`,
           account,
           resolvedAsset,
           BigInt(amount),
-          onBehalfOf
         );
 
         return createJsonResponse({
@@ -355,7 +356,6 @@ Note: Zest Protocol is only available on mainnet.`,
           action: "supply",
           asset: resolvedAsset,
           amount,
-          onBehalfOf: onBehalfOf || account.address,
           network: NETWORK,
           explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
         });
@@ -365,19 +365,19 @@ Note: Zest Protocol is only available on mainnet.`,
     }
   );
 
-  // Withdraw from Zest
+  // Withdraw from Zest v2
   server.registerTool(
     "zest_withdraw",
     {
-      description: `Withdraw assets from Zest Protocol lending pool.
+      description: `Withdraw assets from Zest Protocol v2.
 
-Redeems supplied assets plus earned interest.
-You can use the asset symbol (e.g., 'stSTX') or full contract ID.
+Removes collateral and redeems for underlying assets in one atomic operation.
+You can use the asset symbol (e.g., 'sBTC', 'USDC') or full contract ID.
 
-Note: Zest Protocol is only available on mainnet.`,
+Note: Amount is in zToken shares. Zest Protocol is only available on mainnet.`,
       inputSchema: {
-        asset: z.string().describe("Asset symbol (e.g., 'stSTX', 'aeUSDC') or full contract ID"),
-        amount: z.string().describe("Amount to withdraw (in smallest units)"),
+        asset: z.string().describe("Asset symbol (e.g., 'sBTC', 'USDC') or full contract ID"),
+        amount: z.string().describe("Amount of zToken shares to withdraw"),
       },
     },
     async ({ asset, amount }) => {
@@ -409,19 +409,21 @@ Note: Zest Protocol is only available on mainnet.`,
     }
   );
 
-  // Borrow from Zest
+  // Borrow from Zest v2
   server.registerTool(
     "zest_borrow",
     {
-      description: `Borrow assets from Zest Protocol.
+      description: `Borrow assets from Zest Protocol v2.
 
 Borrows assets against your supplied collateral.
-Ensure you have sufficient collateral to maintain a healthy position.
-You can use the asset symbol (e.g., 'aeUSDC') or full contract ID.
+Ensure you have sufficient collateral to maintain a healthy LTV.
+You can use the asset symbol (e.g., 'USDC', 'sBTC') or full contract ID.
+
+Three LTV tiers: ~75% (borrow limit), ~85% (partial liquidation), ~95% (full liquidation).
 
 Note: Zest Protocol is only available on mainnet.`,
       inputSchema: {
-        asset: z.string().describe("Asset symbol (e.g., 'stSTX', 'aeUSDC') or full contract ID"),
+        asset: z.string().describe("Asset symbol (e.g., 'sBTC', 'USDC') or full contract ID"),
         amount: z.string().describe("Amount to borrow (in smallest units)"),
       },
     },
@@ -454,18 +456,18 @@ Note: Zest Protocol is only available on mainnet.`,
     }
   );
 
-  // Repay to Zest
+  // Repay to Zest v2
   server.registerTool(
     "zest_repay",
     {
-      description: `Repay borrowed assets to Zest Protocol.
+      description: `Repay borrowed assets to Zest Protocol v2.
 
 Repays borrowed assets plus accrued interest.
-You can use the asset symbol (e.g., 'aeUSDC') or full contract ID.
+You can use the asset symbol (e.g., 'USDC', 'sBTC') or full contract ID.
 
 Note: Zest Protocol is only available on mainnet.`,
       inputSchema: {
-        asset: z.string().describe("Asset symbol (e.g., 'stSTX', 'aeUSDC') or full contract ID"),
+        asset: z.string().describe("Asset symbol (e.g., 'sBTC', 'USDC') or full contract ID"),
         amount: z.string().describe("Amount to repay (in smallest units)"),
         onBehalfOf: z
           .string()
@@ -501,55 +503,6 @@ Note: Zest Protocol is only available on mainnet.`,
           onBehalfOf: onBehalfOf || account.address,
           network: NETWORK,
           explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
-        });
-      } catch (error) {
-        return createErrorResponse(error);
-      }
-    }
-  );
-
-  // Claim rewards from Zest
-  server.registerTool(
-    "zest_claim_rewards",
-    {
-      description: `Claim accumulated rewards from Zest Protocol incentives program.
-
-Currently, sBTC suppliers earn wSTX rewards. This function claims any accumulated
-rewards and sends them to your wallet.
-
-You can use the asset symbol (e.g., 'sBTC') or full contract ID.
-
-Note: Zest Protocol is only available on mainnet.`,
-      inputSchema: {
-        asset: z
-          .string()
-          .default("sBTC")
-          .describe("Asset you supplied to earn rewards (default: sBTC)"),
-      },
-    },
-    async ({ asset }) => {
-      try {
-        if (NETWORK !== "mainnet") {
-          return createJsonResponse({
-            error: "Zest Protocol is only available on mainnet",
-            network: NETWORK,
-          });
-        }
-
-        const zestService = getZestProtocolService(NETWORK);
-        const resolvedAsset = await zestService.resolveAsset(asset);
-        const account = await getAccount();
-        const result = await zestService.claimRewards(account, resolvedAsset);
-
-        return createJsonResponse({
-          success: true,
-          txid: result.txid,
-          action: "claim_rewards",
-          asset: resolvedAsset,
-          rewardAsset: "wSTX",
-          network: NETWORK,
-          explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
-          note: "Rewards will be sent to your wallet once the transaction confirms.",
         });
       } catch (error) {
         return createErrorResponse(error);
