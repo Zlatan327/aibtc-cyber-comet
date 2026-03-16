@@ -8,6 +8,7 @@ import { registerSbtcTools } from "./sbtc.tools.js";
 import { registerTokenTools } from "./tokens.tools.js";
 import { registerNftTools } from "./nft.tools.js";
 import { registerStackingTools } from "./stacking.tools.js";
+import { registerDualStackingTools } from "./dual-stacking.tools.js";
 import { registerBnsTools } from "./bns.tools.js";
 import { registerStyxTools } from "./styx.tools.js";
 import { registerQueryTools } from "./query.tools.js";
@@ -82,6 +83,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Stacking / PoX
   registerStackingTools(server);
+
+  // Dual Stacking (sBTC yield via Dual Stacking protocol)
+  registerDualStackingTools(server);
 
   // BNS Domains
   registerBnsTools(server);
