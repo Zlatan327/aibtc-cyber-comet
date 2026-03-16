@@ -1,0 +1,589 @@
+// Jingswap Auction MCP Tools
+// Query + deposit/cancel tools for the STX/sBTC blind auction on Stacks.
+// Contract: SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22.sbtc-stx-jingswap
+
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { uintCV, bufferCV, contractPrincipalCV, PostConditionMode, Pc } from "@stacks/transactions";
+import { getAccount, NETWORK } from "../services/x402.service.js";
+import { callContract } from "../transactions/builder.js";
+import { getExplorerTxUrl } from "../config/networks.js";
+import { createJsonResponse, createErrorResponse } from "../utils/index.js";
+
+const JINGSWAP_API =
+  process.env.JINGSWAP_API_URL || "https://faktory-dao-backend.vercel.app";
+// Public default key: rate-limited per IP on the backend, same model as Hiro's public API tier.
+// Set JINGSWAP_API_KEY env var for higher limits.
+const JINGSWAP_API_KEY =
+  process.env.JINGSWAP_API_KEY || "jc_b058d7f2e0976bd4ee34be3e5c7ba7ebe45289c55d3f5e45f666ebc14b7ebfd0";
+
+async function jingswapGet(path: string): Promise<any> {
+  const res = await fetch(`${JINGSWAP_API}${path}`, {
+    headers: { "x-api-key": JINGSWAP_API_KEY },
+  });
+  if (!res.ok) throw new Error(`Jingswap API ${res.status}: ${await res.text()}`);
+  const json = await res.json();
+  if (!json.success) throw new Error(json.message || "API returned failure");
+  return json.data;
+}
+
+export function registerJingswapTools(server: McpServer): void {
+  // ── Cycle State ──────────────────────────────────────────────
+
+  server.registerTool(
+    "jingswap_get_cycle_state",
+    {
+      description:
+        "Get the current Jingswap auction cycle state including phase (deposit/buffer/settle), " +
+        "blocks elapsed, cycle totals (STX + sBTC deposited), and minimum deposit requirements. " +
+        "Use this to understand where the auction currently stands.",
+    },
+    async () => {
+      try {
+        const data = await jingswapGet("/api/auction/cycle-state");
+        return createJsonResponse({
+          ...data,
+          _hint: {
+            phases: "0=deposit (open for deposits, min 150 blocks), 1=buffer (30 blocks ~1 min, no actions), 2=settle (call settle-with-refresh)",
+            blockTime: "Stacks blocks average ~2 seconds each (Nakamoto)",
+            depositMinBlocks: "150 blocks (~5 minutes) before deposits can be closed",
+            bufferBlocks: "30 blocks (~1 minute) after close before settlement is possible",
+            stxUnits: "micro-STX (÷1e6 for STX)",
+            sbtcUnits: "satoshis (÷1e8 for sBTC)",
+          },
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ── Depositors ───────────────────────────────────────────────
+
+  server.registerTool(
+    "jingswap_get_depositors",
+    {
+      description:
+        "Get the list of STX and sBTC depositors for a specific auction cycle. " +
+        "Returns arrays of Stacks addresses on each side. Max 50 depositors per side.",
+      inputSchema: {
+        cycle: z.number().describe("Cycle number to query"),
+      },
+    },
+    async ({ cycle }) => {
+      try {
+        const data = await jingswapGet(`/api/auction/depositors/${cycle}`);
+        return createJsonResponse(data);
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ── User Deposit ─────────────────────────────────────────────
+
+  server.registerTool(
+    "jingswap_get_user_deposit",
+    {
+      description:
+        "Get a specific user's deposit amounts (STX and sBTC) for a given auction cycle.",
+      inputSchema: {
+        cycle: z.number().describe("Cycle number"),
+        address: z.string().describe("Stacks address of the depositor"),
+      },
+    },
+    async ({ cycle, address }) => {
+      try {
+        const data = await jingswapGet(`/api/auction/deposit/${cycle}/${address}`);
+        return createJsonResponse(data);
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ── Settlement ───────────────────────────────────────────────
+
+  server.registerTool(
+    "jingswap_get_settlement",
+    {
+      description:
+        "Get settlement details for a completed auction cycle. Returns clearing price (STX/BTC), " +
+        "amounts cleared, fees, and the block height at which settlement occurred. " +
+        "Returns null settlement if the cycle hasn't been settled yet.",
+      inputSchema: {
+        cycle: z.number().describe("Cycle number to query"),
+      },
+    },
+    async ({ cycle }) => {
+      try {
+        const data = await jingswapGet(`/api/auction/settlement/${cycle}`);
+        return createJsonResponse(data);
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ── Cycles History ───────────────────────────────────────────
+
+  server.registerTool(
+    "jingswap_get_cycles_history",
+    {
+      description:
+        "Get the full history of all auction cycles from cycle 0 to the current cycle. " +
+        "Each entry includes settlement data (if settled) and cycle totals. " +
+        "Useful for analyzing historical auction performance and volume.",
+    },
+    async () => {
+      try {
+        const data = await jingswapGet("/api/auction/cycles-history");
+        return createJsonResponse(data);
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ── User Activity ────────────────────────────────────────────
+
+  server.registerTool(
+    "jingswap_get_user_activity",
+    {
+      description:
+        "Get a user's auction activity history — deposits, cancellations, fills, and settlements. " +
+        "Indexed from on-chain contract events.",
+      inputSchema: {
+        address: z.string().describe("Stacks address to query"),
+      },
+    },
+    async ({ address }) => {
+      try {
+        const data = await jingswapGet(`/api/auction/activity/${address}`);
+        return createJsonResponse({
+          ...data,
+          _hint: {
+            "distribute-stx-depositor": "stxAmount = unswapped STX rolled to next cycle, sbtcAmount = sBTC received from swap",
+            "distribute-sbtc-depositor": "sbtcAmount = unswapped sats rolled to next cycle, stxAmount = STX received from swap",
+            "refund-stx": "deposit rejected (e.g. duplicate or below minimum)",
+            "refund-sbtc": "deposit rejected (e.g. duplicate or below minimum)",
+          },
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ── Deposit STX ─────────────────────────────────────────────
+
+  const JINGSWAP_CONTRACT_ADDRESS = "SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22";
+  const JINGSWAP_CONTRACT_NAME = "sbtc-stx-jingswap";
+  const SBTC_CONTRACT = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
+
+  async function assertDepositPhase(): Promise<void> {
+    const data = await jingswapGet("/api/auction/cycle-state");
+    if (data.phase !== 0) {
+      const phaseNames = ["deposit", "buffer", "settle"];
+      throw new Error(
+        `Cannot deposit/cancel — auction is in ${phaseNames[data.phase] || "unknown"} phase (must be in deposit phase)`
+      );
+    }
+  }
+
+  server.registerTool(
+    "jingswap_deposit_stx",
+    {
+      description:
+        "Deposit STX into the current Jingswap auction cycle. " +
+        "Only works during the deposit phase. Amount is in STX (e.g. 10 for 10 STX).",
+      inputSchema: {
+        amount: z.number().positive().describe("Amount of STX to deposit"),
+      },
+    },
+    async ({ amount }) => {
+      try {
+        await assertDepositPhase();
+        const account = await getAccount();
+        const microStx = BigInt(Math.floor(amount * 1_000_000));
+
+        const result = await callContract(account, {
+          contractAddress: JINGSWAP_CONTRACT_ADDRESS,
+          contractName: JINGSWAP_CONTRACT_NAME,
+          functionName: "deposit-stx",
+          functionArgs: [uintCV(microStx)],
+          postConditionMode: PostConditionMode.Deny,
+          postConditions: [
+            Pc.principal(account.address).willSendEq(microStx).ustx(),
+          ],
+        });
+
+        return createJsonResponse({
+          success: true,
+          txid: result.txid,
+          action: "deposit-stx",
+          amount: `${amount} STX`,
+          network: NETWORK,
+          explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ── Deposit sBTC ────────────────────────────────────────────
+
+  server.registerTool(
+    "jingswap_deposit_sbtc",
+    {
+      description:
+        "Deposit sBTC into the current Jingswap auction cycle. " +
+        "Only works during the deposit phase. Amount is in satoshis (e.g. 1000 for 1000 sats).",
+      inputSchema: {
+        amount: z.number().int().positive().describe("Amount of sBTC in satoshis"),
+      },
+    },
+    async ({ amount }) => {
+      try {
+        await assertDepositPhase();
+        const account = await getAccount();
+        const sats = BigInt(amount);
+
+        const result = await callContract(account, {
+          contractAddress: JINGSWAP_CONTRACT_ADDRESS,
+          contractName: JINGSWAP_CONTRACT_NAME,
+          functionName: "deposit-sbtc",
+          functionArgs: [uintCV(sats)],
+          postConditionMode: PostConditionMode.Deny,
+          postConditions: [
+            Pc.principal(account.address)
+              .willSendEq(sats)
+              .ft(SBTC_CONTRACT as `${string}.${string}`, "sbtc-token"),
+          ],
+        });
+
+        return createJsonResponse({
+          success: true,
+          txid: result.txid,
+          action: "deposit-sbtc",
+          amount: `${amount} sats`,
+          network: NETWORK,
+          explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ── Cancel STX Deposit ──────────────────────────────────────
+
+  server.registerTool(
+    "jingswap_cancel_stx",
+    {
+      description:
+        "Cancel your STX deposit from the current Jingswap auction cycle and get a full refund. " +
+        "Only works during the deposit phase.",
+    },
+    async () => {
+      try {
+        await assertDepositPhase();
+        const account = await getAccount();
+
+        const result = await callContract(account, {
+          contractAddress: JINGSWAP_CONTRACT_ADDRESS,
+          contractName: JINGSWAP_CONTRACT_NAME,
+          functionName: "cancel-stx-deposit",
+          functionArgs: [],
+          postConditionMode: PostConditionMode.Allow,
+          postConditions: [],
+        });
+
+        return createJsonResponse({
+          success: true,
+          txid: result.txid,
+          action: "cancel-stx-deposit",
+          network: NETWORK,
+          explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ── Cancel sBTC Deposit ─────────────────────────────────────
+
+  server.registerTool(
+    "jingswap_cancel_sbtc",
+    {
+      description:
+        "Cancel your sBTC deposit from the current Jingswap auction cycle and get a full refund. " +
+        "Only works during the deposit phase.",
+    },
+    async () => {
+      try {
+        await assertDepositPhase();
+        const account = await getAccount();
+
+        const result = await callContract(account, {
+          contractAddress: JINGSWAP_CONTRACT_ADDRESS,
+          contractName: JINGSWAP_CONTRACT_NAME,
+          functionName: "cancel-sbtc-deposit",
+          functionArgs: [],
+          postConditionMode: PostConditionMode.Allow,
+          postConditions: [],
+        });
+
+        return createJsonResponse({
+          success: true,
+          txid: result.txid,
+          action: "cancel-sbtc-deposit",
+          network: NETWORK,
+          explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ── Close Deposits ───────────────────────────────────────────
+
+  server.registerTool(
+    "jingswap_close_deposits",
+    {
+      description:
+        "Close the deposit phase of the current Jingswap auction cycle. " +
+        "Before calling, check jingswap_get_cycle_state to verify: phase is 0 (deposit), " +
+        "blocksElapsed >= 150 (DEPOSIT_MIN_BLOCKS), and both sides meet minimums " +
+        "(min 1 STX = 1,000,000 micro-STX and min 1,000 sats sBTC). " +
+        "Anyone can call this. Transitions to buffer phase.",
+    },
+    async () => {
+      try {
+        const data = await jingswapGet("/api/auction/cycle-state");
+        if (data.phase !== 0) {
+          throw new Error("Cannot close deposits — auction is not in deposit phase");
+        }
+        const account = await getAccount();
+
+        const result = await callContract(account, {
+          contractAddress: JINGSWAP_CONTRACT_ADDRESS,
+          contractName: JINGSWAP_CONTRACT_NAME,
+          functionName: "close-deposits",
+          functionArgs: [],
+          postConditionMode: PostConditionMode.Allow,
+          postConditions: [],
+        });
+
+        return createJsonResponse({
+          success: true,
+          txid: result.txid,
+          action: "close-deposits",
+          cycle: data.currentCycle,
+          network: NETWORK,
+          explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ── Settle (stored prices) ──────────────────────────────────
+
+  server.registerTool(
+    "jingswap_settle",
+    {
+      description:
+        "Settle the current auction cycle using stored Pyth oracle prices (free). " +
+        "WARNING: This will almost always fail because stored prices go stale quickly. " +
+        "Prefer jingswap_settle_with_refresh instead — it fetches fresh prices and is much more reliable. " +
+        "Only works after deposits have been closed (buffer/settle phase).",
+    },
+    async () => {
+      try {
+        const data = await jingswapGet("/api/auction/cycle-state");
+        if (data.phase === 0) {
+          throw new Error("Cannot settle — auction is still in deposit phase. Close deposits first.");
+        }
+        const account = await getAccount();
+
+        const result = await callContract(account, {
+          contractAddress: JINGSWAP_CONTRACT_ADDRESS,
+          contractName: JINGSWAP_CONTRACT_NAME,
+          functionName: "settle",
+          functionArgs: [],
+          postConditionMode: PostConditionMode.Allow,
+          postConditions: [],
+        });
+
+        return createJsonResponse({
+          success: true,
+          txid: result.txid,
+          action: "settle",
+          cycle: data.currentCycle,
+          network: NETWORK,
+          explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ── Settle with Refresh (fresh Pyth VAAs) ───────────────────
+
+  const PYTH_CONTRACTS = {
+    storage: { address: "SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y", name: "pyth-storage-v4" },
+    decoder: { address: "SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y", name: "pyth-pnau-decoder-v3" },
+    wormhole: { address: "SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y", name: "wormhole-core-v2" },
+  };
+
+  server.registerTool(
+    "jingswap_settle_with_refresh",
+    {
+      description:
+        "Settle the current auction cycle by first refreshing Pyth oracle prices with fresh VAAs. " +
+        "This is the recommended settlement method — stored prices are almost always stale. " +
+        "Costs ~2 µSTX for the Pyth update. Automatically fetches fresh VAAs from the backend. " +
+        "Settlement distributes funds to all depositors so post conditions are in Allow mode. " +
+        "There is no guarantee settlement succeeds (e.g. if oracle update fails), but this is " +
+        "the most reliable path. Only works after deposits have been closed (buffer/settle phase).",
+    },
+    async () => {
+      try {
+        const data = await jingswapGet("/api/auction/cycle-state");
+        if (data.phase === 0) {
+          throw new Error("Cannot settle — auction is still in deposit phase. Close deposits first.");
+        }
+
+        // Fetch fresh Pyth VAAs from backend
+        const vaas = await jingswapGet("/api/auction/pyth-vaas");
+        const btcVaaBuffer = bufferCV(Buffer.from(vaas.btcVaaHex, "hex"));
+        const stxVaaBuffer = bufferCV(Buffer.from(vaas.stxVaaHex, "hex"));
+
+        const account = await getAccount();
+
+        const result = await callContract(account, {
+          contractAddress: JINGSWAP_CONTRACT_ADDRESS,
+          contractName: JINGSWAP_CONTRACT_NAME,
+          functionName: "settle-with-refresh",
+          functionArgs: [
+            btcVaaBuffer,
+            stxVaaBuffer,
+            contractPrincipalCV(PYTH_CONTRACTS.storage.address, PYTH_CONTRACTS.storage.name),
+            contractPrincipalCV(PYTH_CONTRACTS.decoder.address, PYTH_CONTRACTS.decoder.name),
+            contractPrincipalCV(PYTH_CONTRACTS.wormhole.address, PYTH_CONTRACTS.wormhole.name),
+          ],
+          postConditionMode: PostConditionMode.Allow,
+          postConditions: [],
+        });
+
+        return createJsonResponse({
+          success: true,
+          txid: result.txid,
+          action: "settle-with-refresh",
+          cycle: data.currentCycle,
+          network: NETWORK,
+          explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ── Cancel Cycle ─────────────────────────────────────────────
+
+  server.registerTool(
+    "jingswap_cancel_cycle",
+    {
+      description:
+        "Cancel the current auction cycle if settlement has failed for too long. " +
+        "Can only be called 530 blocks (~17.5 min) after deposits were closed " +
+        "(BUFFER_BLOCKS 30 + CANCEL_THRESHOLD 500). " +
+        "Rolls all deposits into the next cycle — no refunds, users can withdraw " +
+        "individually during the next deposit phase. This is the safety valve.",
+    },
+    async () => {
+      try {
+        const data = await jingswapGet("/api/auction/cycle-state");
+        if (data.phase === 0) {
+          throw new Error("Cannot cancel cycle — auction is still in deposit phase");
+        }
+        const account = await getAccount();
+
+        const result = await callContract(account, {
+          contractAddress: JINGSWAP_CONTRACT_ADDRESS,
+          contractName: JINGSWAP_CONTRACT_NAME,
+          functionName: "cancel-cycle",
+          functionArgs: [],
+          postConditionMode: PostConditionMode.Allow,
+          postConditions: [],
+        });
+
+        return createJsonResponse({
+          success: true,
+          txid: result.txid,
+          action: "cancel-cycle",
+          cycle: data.currentCycle,
+          network: NETWORK,
+          explorerUrl: getExplorerTxUrl(result.txid, NETWORK),
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+
+  // ── Oracle Prices ────────────────────────────────────────────
+
+  server.registerTool(
+    "jingswap_get_prices",
+    {
+      description:
+        "Get current oracle and DEX prices used by the Jingswap auction. " +
+        "Returns Pyth oracle prices (BTC/USD, STX/USD with confidence and freshness), " +
+        "on-chain DEX prices (XYK pool with TVL, DLMM), and the derived STX/BTC price.",
+    },
+    async () => {
+      try {
+        const [pyth, dex] = await Promise.all([
+          jingswapGet("/api/auction/pyth-prices"),
+          jingswapGet("/api/auction/dex-price"),
+        ]);
+        // Compute human-readable STX/BTC prices
+        const xykStxPerBtc =
+          dex.xykBalances && dex.xykBalances.xBalance > 0
+            ? (dex.xykBalances.yBalance / dex.xykBalances.xBalance / 1e6) * 1e8
+            : null;
+        // dlmmPrice is fixed-point: multiply by 1e-10 to get STX/BTC ratio, then invert
+        const dlmmStxPerBtc =
+          dex.dlmmPrice && dex.dlmmPrice > 0
+            ? Math.round((1 / (dex.dlmmPrice * 1e-10)) * 100) / 100
+            : null;
+        return createJsonResponse({
+          pyth,
+          dex: {
+            ...dex,
+            xykStxPerBtc: xykStxPerBtc ? Math.round(xykStxPerBtc * 100) / 100 : null,
+            dlmmStxPerBtc,
+          },
+          _hint: {
+            xykStxPerBtc: "STX per BTC from XYK pool",
+            dlmmStxPerBtc: "STX per BTC from DLMM pool",
+            xykPrice: "Raw contract value — use xykStxPerBtc instead",
+            dlmmPrice: "Raw fixed-point (×1e-10 = STX/BTC ratio) — use dlmmStxPerBtc instead",
+            xBalance: "sBTC in sats (÷1e8 for BTC)",
+            yBalance: "STX in micro-STX (÷1e6 for STX)",
+          },
+        });
+      } catch (error) {
+        return createErrorResponse(error);
+      }
+    }
+  );
+}

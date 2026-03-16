@@ -28,6 +28,7 @@ import { registerRelayDiagnosticTools } from "./relay-diagnostic.tools.js";
 import { registerTeneroTools } from "./tenero.tools.js";
 import { registerOrdinalsP2PTools } from "./ordinals-p2p.tools.js";
 import { registerTaprootMultisigTools } from "./taproot-multisig.tools.js";
+import { registerJingswapTools } from "./jingswap.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 
 /**
@@ -143,6 +144,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Taproot Multisig (M-of-N coordination via OP_CHECKSIGADD, BIP-341/342)
   registerTaprootMultisigTools(server);
+
+  // Jingswap Auction (blind batch auctions for STX/sBTC)
+  registerJingswapTools(server);
 
   restoreRegisterTool();
 }
