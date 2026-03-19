@@ -311,6 +311,15 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   souldinals_list_souls: "souldinals",
   souldinals_load_soul: "souldinals",
   souldinals_display_soul: "souldinals",
+
+  // bounty-scanner skill — sBTC bounty board (bounty.drx4.xyz)
+  bounty_list: "bounty-scanner",
+  bounty_get: "bounty-scanner",
+  bounty_match: "bounty-scanner",
+  bounty_claim: "bounty-scanner",
+  bounty_status: "bounty-scanner",
+  bounty_my_claims: "bounty-scanner",
+  bounty_stats: "bounty-scanner",
 };
 
 /**

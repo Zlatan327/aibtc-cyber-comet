@@ -38,6 +38,7 @@ import { registerNewsTools } from "./news.tools.js";
 import { registerIdentityTools } from "./identity.tools.js";
 import { registerCredentialsTools } from "./credentials.tools.js";
 import { registerSouldinalsTools } from "./souldinals.tools.js";
+import { registerBountyScannerTools } from "./bounty-scanner.tools.js";
 import { getSkillForTool } from "./skill-mappings.js";
 
 /**
@@ -183,6 +184,9 @@ export function registerAllTools(server: McpServer): void {
 
   // Souldinals (soul.md child inscriptions — inscribe, reveal, list, load, display traits)
   registerSouldinalsTools(server);
+
+  // Bounty Scanner (bounty.drx4.xyz — list, match, claim, status, my-claims)
+  registerBountyScannerTools(server);
 
   restoreRegisterTool();
 }
