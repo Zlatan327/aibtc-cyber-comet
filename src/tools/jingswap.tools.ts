@@ -1,7 +1,7 @@
 // Jingswap Auction MCP Tools
 // Query + deposit/cancel tools for sBTC blind auctions on Stacks.
-// Markets: sbtc-stx (SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22.sbtc-stx-jingswap)
-//          sbtc-usdcx (SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22.sbtc-usdcx-jingswap)
+// Markets: sbtc-stx (SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22.sbtc-stx-jing)
+//          sbtc-usdcx (SPV9K21TBFAK4KNRJXF5DFP8N7W46G4V9RCJDC22.sbtc-usdcx-jing)
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -33,7 +33,7 @@ interface MarketConfig {
 
 const MARKETS: Record<string, MarketConfig> = {
   "sbtc-stx": {
-    contractName: "sbtc-stx-jingswap",
+    contractName: "sbtc-stx-jing",
     tokenBSymbol: "STX",
     tokenBDecimals: 6,
     depositFn: "deposit-stx",
@@ -41,7 +41,7 @@ const MARKETS: Record<string, MarketConfig> = {
     priceUnit: "STX/BTC",
   },
   "sbtc-usdcx": {
-    contractName: "sbtc-usdcx-jingswap",
+    contractName: "sbtc-usdcx-jing",
     tokenBSymbol: "USDCx",
     tokenBDecimals: 6,
     tokenBContract: "SP120SBRBQJ00MCWS7TM5R8WJNTTKD5K0HFRC2CNE.usdcx",
@@ -62,7 +62,7 @@ function getMarket(market?: string): MarketConfig {
 }
 
 function apiContractParam(market: MarketConfig): string {
-  return market.contractName === "sbtc-stx-jingswap" ? "" : `?contract=${market.contractName}`;
+  return market.contractName === "sbtc-stx-jing" ? "" : `?contract=${market.contractName}`;
 }
 
 async function jingswapGet(path: string): Promise<any> {
@@ -470,7 +470,7 @@ export function registerJingswapTools(server: McpServer): void {
           contractName: m.contractName,
           functionName: "close-deposits",
           functionArgs: [],
-          postConditionMode: PostConditionMode.Allow,
+          postConditionMode: PostConditionMode.Deny,
           postConditions: [],
         });
 
@@ -510,6 +510,14 @@ export function registerJingswapTools(server: McpServer): void {
         if (data.phase === 0) {
           throw new Error("Cannot settle — auction is still in deposit phase. Close deposits first.");
         }
+        if (data.phase === 1) {
+          const BUFFER_BLOCKS = 30;
+          const blocksIntoBuffer = data.blocksElapsed - 150;
+          const blocksRemaining = Math.max(0, BUFFER_BLOCKS - blocksIntoBuffer);
+          throw new Error(
+            `Cannot settle — auction is in buffer phase. Wait ${blocksRemaining} more blocks (~${blocksRemaining * 2}s) before settling.`
+          );
+        }
         const account = await getAccount();
 
         const result = await callContract(account, {
@@ -541,7 +549,7 @@ export function registerJingswapTools(server: McpServer): void {
   const PYTH_CONTRACTS = {
     storage: { address: "SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y", name: "pyth-storage-v4" },
     decoder: { address: "SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y", name: "pyth-pnau-decoder-v3" },
-    wormhole: { address: "SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y", name: "wormhole-core-v2" },
+    wormhole: { address: "SP1CGXWEAMG6P6FT04W66NVGJ7PQWMDAC19R7PJ0Y", name: "wormhole-core-v4" },
   };
 
   server.registerTool(
@@ -564,6 +572,14 @@ export function registerJingswapTools(server: McpServer): void {
         const data = await jingswapGet(`/api/auction/cycle-state${apiContractParam(m)}`);
         if (data.phase === 0) {
           throw new Error("Cannot settle — auction is still in deposit phase. Close deposits first.");
+        }
+        if (data.phase === 1) {
+          const BUFFER_BLOCKS = 30;
+          const blocksIntoBuffer = data.blocksElapsed - 150;
+          const blocksRemaining = Math.max(0, BUFFER_BLOCKS - blocksIntoBuffer);
+          throw new Error(
+            `Cannot settle — auction is in buffer phase. Wait ${blocksRemaining} more blocks (~${blocksRemaining * 2}s) before settling.`
+          );
         }
 
         // Fetch fresh Pyth VAAs from backend
