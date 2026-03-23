@@ -331,6 +331,67 @@ export const TOOL_SKILL_MAP: Record<string, string> = {
   get_rune_balances: "runes",
   get_rune_utxos: "runes",
   transfer_rune: "runes",
+
+  // news skill — aibtc.news signal filing and browsing
+  news_check_status: "news",
+  news_file_signal: "news",
+  news_front_page: "news",
+  news_leaderboard: "news",
+  news_list_beats: "news",
+  news_list_signals: "news",
+
+  // nostr skill — Nostr protocol social network
+  nostr_get_profile: "nostr",
+  nostr_get_pubkey: "nostr",
+  nostr_post: "nostr",
+  nostr_read_feed: "nostr",
+  nostr_relay_list: "nostr",
+  nostr_search_tags: "nostr",
+  nostr_set_profile: "nostr",
+
+  // reputation skill — ERC-8004 on-chain reputation feedback
+  reputation_append_response: "reputation",
+  reputation_approve_client: "reputation",
+  reputation_get_approved_limit: "reputation",
+  reputation_get_clients: "reputation",
+  reputation_get_feedback_count: "reputation",
+  reputation_get_last_index: "reputation",
+  reputation_get_summary: "reputation",
+  reputation_give_feedback: "reputation",
+  reputation_read_all_feedback: "reputation",
+  reputation_read_feedback: "reputation",
+  reputation_revoke_feedback: "reputation",
+
+  // signing skill — SIP-018 structured data signing
+  sip018_hash: "signing",
+  sip018_sign: "signing",
+  sip018_verify: "signing",
+
+  // stacks-market skill — prediction market operations
+  stacks_market_buy_no: "stacks-market",
+  stacks_market_buy_yes: "stacks-market",
+  stacks_market_get: "stacks-market",
+  stacks_market_get_position: "stacks-market",
+  stacks_market_list: "stacks-market",
+  stacks_market_quote_buy: "stacks-market",
+  stacks_market_quote_sell: "stacks-market",
+  stacks_market_redeem: "stacks-market",
+  stacks_market_search: "stacks-market",
+  stacks_market_sell_no: "stacks-market",
+  stacks_market_sell_yes: "stacks-market",
+
+  // tenero skill — market data and analytics (Tenero API)
+  tenero_holder_stats: "tenero",
+  tenero_market_stats: "tenero",
+  tenero_market_summary: "tenero",
+  tenero_search: "tenero",
+  tenero_token_info: "tenero",
+  tenero_top_gainers: "tenero",
+  tenero_top_losers: "tenero",
+  tenero_trending_pools: "tenero",
+  tenero_wallet_holdings: "tenero",
+  tenero_wallet_trades: "tenero",
+  tenero_whale_trades: "tenero",
 };
 
 /**

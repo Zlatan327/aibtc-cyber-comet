@@ -23,6 +23,7 @@ import {
 } from "../config/bitcoin-constants.js";
 import type { UTXO } from "../services/mempool-api.js";
 import { buildRunestoneScript, parseRuneId, type RuneEdict } from "./runestone-builder.js";
+import { getBtcNetwork } from "./bitcoin-builder.js";
 
 export interface RuneTransferOptions {
   runeId: string;
@@ -45,10 +46,6 @@ export interface RuneTransferResult {
   vsize: number;
   taprootInputIndices: number[];
   feeInputIndices: number[];
-}
-
-function getBtcNetwork(network: Network): typeof btc.NETWORK {
-  return network === "testnet" ? btc.TEST_NETWORK : btc.NETWORK;
 }
 
 const OP_RETURN_VBYTES = 50;

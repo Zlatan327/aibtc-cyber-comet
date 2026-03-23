@@ -6,7 +6,7 @@ import { getPillarApi } from "../services/pillar-api.service.js";
 import { createJsonResponse, createErrorResponse } from "../utils/index.js";
 import { NETWORK, getExplorerTxUrl } from "../config/networks.js";
 import { exec } from "child_process";
-import * as fs from "fs";
+import * as fs from "fs/promises";
 import * as path from "path";
 import * as os from "os";
 
@@ -23,37 +23,31 @@ interface PillarSession {
   connectedAt: number;
 }
 
-function ensureDir(filePath: string): void {
+async function ensureDir(filePath: string): Promise<void> {
   const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  await fs.mkdir(dir, { recursive: true });
 }
 
-function loadSession(): PillarSession | null {
+async function loadSession(): Promise<PillarSession | null> {
   try {
-    if (fs.existsSync(SESSION_FILE)) {
-      const data = fs.readFileSync(SESSION_FILE, "utf-8");
-      return JSON.parse(data);
-    }
+    const data = await fs.readFile(SESSION_FILE, "utf-8");
+    return JSON.parse(data);
   } catch {
-    // Ignore errors
+    // File doesn't exist or parse error
   }
   return null;
 }
 
-function saveSession(session: PillarSession): void {
-  ensureDir(SESSION_FILE);
-  fs.writeFileSync(SESSION_FILE, JSON.stringify(session, null, 2));
+async function saveSession(session: PillarSession): Promise<void> {
+  await ensureDir(SESSION_FILE);
+  await fs.writeFile(SESSION_FILE, JSON.stringify(session, null, 2));
 }
 
-function clearSession(): void {
+async function clearSession(): Promise<void> {
   try {
-    if (fs.existsSync(SESSION_FILE)) {
-      fs.unlinkSync(SESSION_FILE);
-    }
+    await fs.unlink(SESSION_FILE);
   } catch {
-    // Ignore errors
+    // File doesn't exist
   }
 }
 
@@ -153,7 +147,7 @@ export function registerPillarTools(server: McpServer): void {
             walletName: result.walletName,
             connectedAt: Date.now(),
           };
-          saveSession(session);
+          await saveSession(session);
 
           return createJsonResponse({
             success: true,
@@ -196,8 +190,8 @@ export function registerPillarTools(server: McpServer): void {
       inputSchema: {},
     },
     async () => {
-      const session = loadSession();
-      clearSession();
+      const session = await loadSession();
+      await clearSession();
       return createJsonResponse({
         success: true,
         message: session
@@ -215,7 +209,7 @@ export function registerPillarTools(server: McpServer): void {
       inputSchema: {},
     },
     async () => {
-      const session = loadSession();
+      const session = await loadSession();
       if (session) {
         return createJsonResponse({
           connected: true,
@@ -248,7 +242,7 @@ export function registerPillarTools(server: McpServer): void {
     async ({ to, amount, recipientType }) => {
       try {
         // Get wallet address from session
-        const session = loadSession();
+        const session = await loadSession();
         if (!session) {
           return createJsonResponse({
             success: false,
@@ -333,7 +327,7 @@ export function registerPillarTools(server: McpServer): void {
     },
     async ({ method, amount }) => {
       try {
-        const session = loadSession();
+        const session = await loadSession();
         if (!session) {
           return createJsonResponse({
             success: false,
@@ -394,7 +388,7 @@ export function registerPillarTools(server: McpServer): void {
     },
     async ({ adminAddress }) => {
       try {
-        const session = loadSession();
+        const session = await loadSession();
         if (!session) {
           return createJsonResponse({
             success: false,
@@ -451,7 +445,7 @@ export function registerPillarTools(server: McpServer): void {
     },
     async ({ amount }) => {
       try {
-        const session = loadSession();
+        const session = await loadSession();
         if (!session) {
           return createJsonResponse({
             success: false,
@@ -508,7 +502,7 @@ export function registerPillarTools(server: McpServer): void {
     },
     async ({ minSbtc, trigger }) => {
       try {
-        const session = loadSession();
+        const session = await loadSession();
         if (!session) {
           return createJsonResponse({
             success: false,
@@ -562,7 +556,7 @@ export function registerPillarTools(server: McpServer): void {
     },
     async ({ percentage }) => {
       try {
-        const session = loadSession();
+        const session = await loadSession();
         if (!session) {
           return createJsonResponse({
             success: false,
@@ -622,7 +616,7 @@ export function registerPillarTools(server: McpServer): void {
     },
     async ({ amount }) => {
       try {
-        const session = loadSession();
+        const session = await loadSession();
         if (!session) {
           return createJsonResponse({
             success: false,
@@ -676,7 +670,7 @@ export function registerPillarTools(server: McpServer): void {
     },
     async () => {
       try {
-        const session = loadSession();
+        const session = await loadSession();
         if (!session) {
           return createJsonResponse({
             success: false,
@@ -777,7 +771,7 @@ export function registerPillarTools(server: McpServer): void {
     async ({ referral }) => {
       try {
         // Check if already connected
-        const existingSession = loadSession();
+        const existingSession = await loadSession();
         if (existingSession) {
           return createJsonResponse({
             success: false,
@@ -810,7 +804,7 @@ export function registerPillarTools(server: McpServer): void {
             walletName: result.walletName,
             connectedAt: Date.now(),
           };
-          saveSession(session);
+          await saveSession(session);
 
           return createJsonResponse({
             success: true,
@@ -845,7 +839,7 @@ export function registerPillarTools(server: McpServer): void {
     },
     async () => {
       try {
-        const session = loadSession();
+        const session = await loadSession();
         if (!session) {
           return createJsonResponse({
             success: false,
@@ -880,7 +874,7 @@ export function registerPillarTools(server: McpServer): void {
     },
     async ({ partner }) => {
       try {
-        const session = loadSession();
+        const session = await loadSession();
         if (!session) {
           return createJsonResponse({
             success: false,
@@ -925,7 +919,7 @@ export function registerPillarTools(server: McpServer): void {
     },
     async () => {
       try {
-        const session = loadSession();
+        const session = await loadSession();
         if (!session) {
           return createJsonResponse({
             success: false,
@@ -992,7 +986,7 @@ export function registerPillarTools(server: McpServer): void {
     },
     async () => {
       try {
-        const session = loadSession();
+        const session = await loadSession();
         if (!session) {
           return createJsonResponse({
             success: false,
@@ -1053,7 +1047,7 @@ export function registerPillarTools(server: McpServer): void {
     },
     async () => {
       try {
-        const session = loadSession();
+        const session = await loadSession();
         if (!session) {
           return createJsonResponse({
             success: false,
