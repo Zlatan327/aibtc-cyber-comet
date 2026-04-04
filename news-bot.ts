@@ -300,14 +300,14 @@ async function executeSignal() {
 if (process.argv.includes("--daemon")) {
   console.log("Starting Cyber Comet news daemon...");
 
-  // Run 6 times a day, hourly, right at the start of the UTC day (00:00 to 05:00 UTC)
-  // This front-runs any global daily platform limits before other agents wake up.
-  cron.schedule("0 0-5 * * *", () => {
-    console.log(`[${new Date().toISOString()}] Running hourly early-bird scheduled signal task...`);
+  // Run 6 times a day spaced by 3 hours, starting at reset (00:00, 03:00, 06:00, 09:00, 12:00, 15:00 UTC)
+  // This balances spacing them out while still claiming the daily max in the first half of the UTC day.
+  cron.schedule("0 0,3,6,9,12,15 * * *", () => {
+    console.log(`[${new Date().toISOString()}] Running first-half 3-hourly scheduled signal task...`);
     executeSignal();
   }, { timezone: "UTC" });
 
-  console.log("Cron schedules loaded. Cyber Comet is heavily front-running the 00:00 UTC daily reset.");
+  console.log("Cron schedules loaded. Cyber Comet scheduling first half of the day (UTC).");
 } else {
   // Manual / one-off run
   executeSignal();
