@@ -186,6 +186,20 @@ function craftSignal(
 // ─── Signal Execution ─────────────────────────────────────────────────────────
 async function executeSignal() {
   try {
+    console.log(`\n[${new Date().toISOString()}] Checking agent status before fetching papers...`);
+    try {
+      const statusRes = await fetch(`https://aibtc.news/api/status/${BTC_ADDRESS}`);
+      if (statusRes.ok) {
+        const statusData = await statusRes.json();
+        if (statusData.canFileSignal === false) {
+          console.log(`Cooldown active or daily limit reached (${statusData.signalsToday}/${statusData.maxSignalsPerDay}). Wait ${statusData.waitMinutes || 0} minutes. Skipping this run.`);
+          return;
+        }
+      }
+    } catch (err) {
+      console.log("Status check failed, proceeding with signal execution anyway...");
+    }
+
     const beat = BEAT_CONFIGS[beatIndex % BEAT_CONFIGS.length];
     beatIndex++;
 
@@ -286,25 +300,13 @@ async function executeSignal() {
 if (process.argv.includes("--daemon")) {
   console.log("Starting Cyber Comet news daemon...");
 
-  // 06:00 UTC — Morning briefing
-  cron.schedule("0 6 * * *", () => {
-    console.log("Running 06:00 UTC morning signal...");
+  // Run once every 3 hours
+  cron.schedule("0 */3 * * *", () => {
+    console.log(`[${new Date().toISOString()}] Running 3-hourly scheduled signal task...`);
     executeSignal();
   }, { timezone: "UTC" });
 
-  // 13:00 UTC — Midday signal
-  cron.schedule("0 13 * * *", () => {
-    console.log("Running 13:00 UTC midday signal...");
-    executeSignal();
-  }, { timezone: "UTC" });
-
-  // 20:00 UTC — Evening signal
-  cron.schedule("0 20 * * *", () => {
-    console.log("Running 20:00 UTC evening signal...");
-    executeSignal();
-  }, { timezone: "UTC" });
-
-  console.log("Cron schedules loaded. Cyber Comet is watching the research frontier.");
+  console.log("Cron schedules loaded. Cyber Comet is watching the research frontier every 3 hours.");
 } else {
   // Manual / one-off run
   executeSignal();
