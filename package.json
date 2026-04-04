@@ -12,6 +12,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "start:daemon": "concurrently \"npx tsx heartbeat.ts\" \"npx tsx news-bot.ts --daemon\"",
+    "start:web": "npx tsx server.ts",
     "dev": "tsx src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",

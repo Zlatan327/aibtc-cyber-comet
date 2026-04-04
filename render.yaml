@@ -1,9 +1,9 @@
 services:
-  - type: worker
+  - type: web
     name: aibtc-cyber-comet
     runtime: node
     buildCommand: npm install
-    startCommand: npm run start:daemon
+    startCommand: npm run start:web
     envVars:
       - key: CLIENT_MNEMONIC
         sync: false
