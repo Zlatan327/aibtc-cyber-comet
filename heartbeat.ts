@@ -1,37 +1,48 @@
-import { getWalletManager } from "./src/services/wallet-manager.js";
+/**
+ * AIBTC Heartbeat Daemon
+ *
+ * Stateless heartbeat that derives Bitcoin keys directly from CLIENT_MNEMONIC.
+ * This works on ephemeral cloud containers (Render, Railway, etc.) that have no
+ * persistent filesystem — no wallet keystore required.
+ *
+ * Runs every 5 minutes and signs a BIP-322 check-in with your BTC identity.
+ */
+import "dotenv/config";
 import { p2wpkh, NETWORK as BTC_MAINNET } from "@scure/btc-signer";
+import { deriveBitcoinKeyPair } from "./src/utils/bitcoin.js";
 import { bip322Sign } from "./src/utils/bip322.js";
+
+const MNEMONIC = process.env.CLIENT_MNEMONIC?.trim();
+const NETWORK = (process.env.NETWORK as "mainnet" | "testnet") || "mainnet";
+
+if (!MNEMONIC) {
+  console.error("❌ [heartbeat] CLIENT_MNEMONIC environment variable is not set. Exiting.");
+  process.exit(1);
+}
+
+// Derive Bitcoin key pair once at startup (stateless, no keystore needed)
+const { address: btcAddress, privateKey: btcPrivateKey, publicKeyBytes: btcPublicKey } =
+  deriveBitcoinKeyPair(MNEMONIC, NETWORK);
+
+console.log(`[heartbeat] Derived BTC address: ${btcAddress}`);
 
 async function checkIn() {
   try {
-    const wm = getWalletManager();
-    const activeWalletId = await wm.getActiveWalletId();
-    if (!activeWalletId) throw new Error("No active wallet");
-    
-    // Unlock the wallet
-    const account = await wm.unlock(activeWalletId, "aibtc-secure-password123");
-    if (!account.btcAddress || !account.btcPrivateKey || !account.btcPublicKey) {
-      throw new Error("Bitcoin keys not available.");
-    }
-
-    // Prepare timestamp and message
     const timestamp = new Date().toISOString();
     const message = `AIBTC Check-In | ${timestamp}`;
 
-    // Sign the message using BIP-322
-    const scriptPubKey = p2wpkh(account.btcPublicKey, BTC_MAINNET).script;
-    const signature = bip322Sign(message, account.btcPrivateKey, scriptPubKey);
+    // Sign with BIP-322 (P2WPKH)
+    const scriptPubKey = p2wpkh(btcPublicKey, BTC_MAINNET).script;
+    const signature = bip322Sign(message, btcPrivateKey, scriptPubKey);
 
-    // Prepare payload
     const payload = {
-      signature: signature,
-      timestamp: timestamp,
-      btcAddress: account.btcAddress
+      signature,
+      timestamp,
+      btcAddress,
     };
 
-    console.log(`[${timestamp}] Sending heartbeat...`);
+    console.log(`[heartbeat] Sending check-in at ${timestamp}...`);
 
-    // Submit to API
     const res = await fetch("https://aibtc.com/api/heartbeat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -40,22 +51,22 @@ async function checkIn() {
 
     const data = await res.json();
     if (res.ok) {
-      console.log(`✅ Check-in successful! Total check-ins: ${data.checkIn?.checkInCount}`);
+      console.log(`✅ [heartbeat] Check-in successful! Total: ${data.checkIn?.checkInCount ?? "?"}`);
     } else {
-      console.error(`❌ Check-in failed: ${data.error}`);
+      console.error(`❌ [heartbeat] Check-in rejected (${res.status}): ${data.error ?? JSON.stringify(data)}`);
     }
   } catch (err) {
-    console.error("Error during check-in:", err);
+    console.error("[heartbeat] Error during check-in:", err);
   }
 }
 
 async function main() {
   console.log("Starting AIBTC Heartbeat Daemon...");
-  
-  // Do first check-in immediately
+
+  // Initial check-in on startup
   await checkIn();
 
-  // Run every 5 minutes (300,000 milliseconds)
+  // Recurring check-in every 5 minutes
   setInterval(checkIn, 5 * 60 * 1000);
 }
 
