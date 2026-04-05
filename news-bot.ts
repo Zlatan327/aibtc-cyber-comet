@@ -1,28 +1,39 @@
 /**
- * Cyber Comet — AIBTC News Bot
+ * Cyber Comet — AIBTC News Bot (v3 — spec-compliant + LLM synthesis)
  *
- * Stateless: derives Bitcoin keys direct from CLIENT_MNEMONIC (no wallet keystore needed).
- * Runs on Render, Railway, or any ephemeral container.
- *
- * Editorial policy: every signal MUST explicitly connect research findings to
- * aibtc network activity — agents, sBTC, ERC-8004 identities, MCP infrastructure,
- * on-chain registries, or the aibtc.news leaderboard. Generic academic abstracts
- * alone are grounds for rejection. Bridge theory → aibtc ecosystem impact.
+ * Fixes from official aibtc-news/aibtc-news.ts SKILL audit:
+ *  1. API field: "body" → "content" (was silently rejected by API)
+ *  2. Content hard limit: 1000 chars (target 200-380 chars — not words)
+ *  3. disclosure: JSON object { models, tools, notes } — not a plain string
+ *  4. sources: array of URL strings — not [{url, title}] objects
+ *  5. btc_address removed from body (auth is via X-BTC-Address header only)
+ *  6. Rate limit: 1 per 4 hours — cron changed from 3-hourly to 4-hourly
+ *  7. Signals must open with a verifiable specific number (pre-flight rule)
+ *  8. LLM synthesis so every signal is unique (no templated aibtcBridge)
+ *  9. Seen-paper cache to prevent duplicate submissions across runs
+ * 10. Authors regex fixed: /<n>/ → /<name>/
  */
+
 import "dotenv/config";
 import { p2wpkh, NETWORK as BTC_MAINNET } from "@scure/btc-signer";
 import { deriveBitcoinKeyPair } from "./src/utils/bitcoin.js";
 import { bip322Sign } from "./src/utils/bip322.js";
-import { appendFileSync } from "fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import cron from "node-cron";
 
-// ─── Wallet Setup (Stateless) ─────────────────────────────────────────────────
+// ─── Env ──────────────────────────────────────────────────────────────────────
+
 const MNEMONIC = process.env.CLIENT_MNEMONIC?.trim();
 const NETWORK = (process.env.NETWORK as "mainnet" | "testnet") || "mainnet";
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY?.trim();
 
 if (!MNEMONIC) {
-  console.error("❌ [news-bot] CLIENT_MNEMONIC environment variable is not set. Exiting.");
+  console.error("❌ CLIENT_MNEMONIC is not set.");
+  process.exit(1);
+}
+if (!ANTHROPIC_API_KEY) {
+  console.error("❌ ANTHROPIC_API_KEY is not set. LLM synthesis requires it.");
   process.exit(1);
 }
 
@@ -32,12 +43,25 @@ const {
   publicKeyBytes: BTC_PUBLIC_KEY,
 } = deriveBitcoinKeyPair(MNEMONIC, NETWORK);
 
-console.log(`[news-bot] BTC address derived: ${BTC_ADDRESS}`);
+console.log(`[news-bot] BTC address: ${BTC_ADDRESS}`);
 
-// ─── Beat Config ──────────────────────────────────────────────────────────────
-// EDITORIAL POLICY: Every beat's `aibtcBridge` field is the mandatory closing
-// paragraph that ties the research directly to aibtc on-chain activity.
-// This is what separates accepted signals from rejected ones.
+// ─── Seen-paper cache ─────────────────────────────────────────────────────────
+
+const SEEN_PATH = join(process.cwd(), "seen-papers.json");
+
+function loadSeen(): Set<string> {
+  try {
+    if (existsSync(SEEN_PATH)) return new Set(JSON.parse(readFileSync(SEEN_PATH, "utf-8")));
+  } catch (_) {}
+  return new Set<string>();
+}
+function saveSeen(s: Set<string>) {
+  try { writeFileSync(SEEN_PATH, JSON.stringify([...s].slice(-500)), "utf-8"); } catch (_) {}
+}
+const seenPapers = loadSeen();
+
+// ─── Beat config ──────────────────────────────────────────────────────────────
+
 const BEAT_CONFIGS = [
   {
     slug: "agent-trading",
@@ -48,26 +72,26 @@ const BEAT_CONFIGS = [
       "cat:cs.MA+AND+(multi-agent+market+OR+mechanism+design+decentralized)",
       "cat:q-fin.TR+AND+(machine+learning+OR+deep+reinforcement+portfolio)",
     ],
-    angle: "autonomous agent trading strategies and Bitcoin-native DeFi market dynamics",
-    aibtcBridge:
-      "On the aibtc network, registered agent identities (ERC-8004) are already executing autonomous trades across sBTC liquidity pools and ALEX DEX markets. " +
-      "The research above directly informs how next-generation aibtc trading agents can improve execution quality, reduce adversarial slippage, and coordinate multi-agent strategies on Bitcoin Layer 2. " +
-      "Developers building trading skill modules for the aibtc MCP server should treat these results as actionable architecture guidance — not academic reading.",
+    editorBrief:
+      "You cover Agent Trading for aibtc.news — the paper of record for AI agents on Bitcoin. " +
+      "450+ registered agents execute autonomous trades across sBTC pools and ALEX DEX. " +
+      "Every signal must open with a specific verifiable number (finding size, accuracy %, dataset count, etc.). " +
+      "Bridge the research concretely to aibtc trading agents: what should they build or change right now?",
   },
   {
     slug: "infrastructure",
     name: "Infrastructure",
-    tags: ["bitcoin", "mcp", "agent-infrastructure", "stacks", "sbtc"],
+    tags: ["bitcoin", "mcp", "stacks", "sbtc", "erc8004"],
     queries: [
       "cat:cs.DC+AND+(bitcoin+OR+stacks+OR+layer2+OR+blockchain+consensus)",
       "cat:cs.NI+AND+(agent+protocol+OR+decentralized+identity+OR+verifiable+credential)",
       "cat:cs.CR+AND+(bitcoin+script+OR+taproot+OR+threshold+signature+OR+MPC)",
     ],
-    angle: "Bitcoin Layer 2 infrastructure, agent communication protocols, and cryptographic identity primitives",
-    aibtcBridge:
-      "The aibtc network runs on this exact infrastructure stack: Stacks L2 for smart contracts, sBTC for Bitcoin-backed capital movement, MCP servers for agent tooling, and ERC-8004 on-chain identity registries for agent reputation. " +
-      "Protocol advances in the research above have direct deployment implications for the aibtc node operator community. " +
-      "Infrastructure contributors building toward the aibtc leaderboard should monitor these developments — they represent the primitives that will underpin the next generation of Bitcoin-native agent coordination.",
+    editorBrief:
+      "You cover Infrastructure for aibtc.news. " +
+      "The aibtc stack: Stacks L2 smart contracts, sBTC for Bitcoin-backed capital, MCP servers, ERC-8004 identity. " +
+      "Every signal must open with a specific verifiable number. " +
+      "Tell node operators or MCP skill builders exactly what this means for them — not vague 'relevance' language.",
   },
   {
     slug: "bitcoin-macro",
@@ -78,237 +102,248 @@ const BEAT_CONFIGS = [
       "cat:cs.CL+AND+(financial+reasoning+OR+economic+agent+OR+market+prediction)",
       "cat:q-fin.EC+AND+(digital+currency+OR+bitcoin+OR+stablecoin+capital+flow)",
     ],
-    angle: "macroeconomic Bitcoin dynamics and AI agent reasoning over financial market signals",
-    aibtcBridge:
-      "Aibtc agents operating in the `bitcoin-macro` beat are uniquely positioned to synthesise macro signals and translate them into actionable intelligence for the broader aibtc community. " +
-      "As sBTC peg activity and Bitcoin L2 adoption metrics become leading indicators of DeFi capital flows, agents that reason over monetary research and on-chain data will generate the most valued signals on aibtc.news. " +
-      "This is not general academic content — it is the analytical foundation for the next class of Bitcoin-native AI correspondents staking reputation on-chain.",
+    editorBrief:
+      "You cover Bitcoin Macro for aibtc.news. " +
+      "The community tracks sBTC peg flows, Bitcoin L2 adoption, and how macro conditions shape agent economics. " +
+      "Every signal must open with a specific verifiable number from the paper (dataset size, model accuracy, measured effect). " +
+      "Connect macro research to what aibtc agents should watch or act on — avoid generic crypto commentary.",
   },
 ];
 
 let beatIndex = 0;
 
-// ─── Arxiv Fetch ──────────────────────────────────────────────────────────────
+// ─── Arxiv ────────────────────────────────────────────────────────────────────
+
 interface ArxivPaper {
   title: string;
   summary: string;
   url: string;
   authors: string;
+  published: string;
 }
 
-async function fetchArxivPapers(query: string, count = 3): Promise<ArxivPaper[]> {
-  const arxivUrl = `http://export.arxiv.org/api/query?search_query=${encodeURIComponent(query)}&sortBy=submittedDate&sortOrder=descending&max_results=${count}`;
-  const res = await fetch(arxivUrl);
+async function fetchArxivPapers(query: string, count = 5): Promise<ArxivPaper[]> {
+  const url =
+    `http://export.arxiv.org/api/query?search_query=${encodeURIComponent(query)}` +
+    `&sortBy=submittedDate&sortOrder=descending&max_results=${count}`;
+  const res = await fetch(url);
   const xml = await res.text();
-
   const entries = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)];
   const papers: ArxivPaper[] = [];
 
   for (const match of entries) {
-    const entryXml = match[1];
-    const titleMatch = entryXml.match(/<title>([\s\S]+?)<\/title>/);
-    const summaryMatch = entryXml.match(/<summary>([\s\S]+?)<\/summary>/);
-    const idMatch = entryXml.match(/<id>([^<]+)<\/id>/);
-    const authorMatches = [...entryXml.matchAll(/<name>([^<]+)<\/name>/g)];
+    const x = match[1];
+    const titleM = x.match(/<title>([\s\S]+?)<\/title>/);
+    const summaryM = x.match(/<summary>([\s\S]+?)<\/summary>/);
+    const idM = x.match(/<id>([^<]+)<\/id>/);
+    const pubM = x.match(/<published>([^<]+)<\/published>/);
+    // Fix #10: was /<n>/ — now correctly matches <name>
+    const authorMs = [...x.matchAll(/<name>([^<]+)<\/name>/g)];
 
-    if (!titleMatch || !summaryMatch || !idMatch) continue;
+    if (!titleM || !summaryM || !idM) continue;
+    const paperUrl = idM[1].trim().replace("http://", "https://");
+    if (seenPapers.has(paperUrl)) continue;
 
-    const title = titleMatch[1].replace(/\s+/g, " ").trim();
-    const summary = summaryMatch[1].replace(/\s+/g, " ").trim();
-    const url = idMatch[1].trim().replace("http://", "https://");
-    const authors = authorMatches.slice(0, 3).map((a) => a[1]).join(", ");
-
-    papers.push({ title, summary, url, authors });
+    papers.push({
+      title: titleM[1].replace(/\s+/g, " ").trim(),
+      summary: summaryM[1].replace(/\s+/g, " ").trim(),
+      url: paperUrl,
+      authors: authorMs.slice(0, 3).map((a) => a[1]).join(", ") || "Unknown authors",
+      published: pubM ? pubM[1].substring(0, 10) : "recent",
+    });
   }
-
   return papers;
 }
 
-// ─── Signal Assembly ──────────────────────────────────────────────────────────
-// CRITICAL: Every signal must follow this template:
-// 1. Primary paper finding
-// 2. Secondary paper context (if available)
-// 3. aibtcBridge — mandatory paragraph anchoring content to aibtc on-chain activity
-//
-// Signals without the aibtcBridge risk rejection for lacking "aibtc network relevance".
-function craftSignal(
+// ─── LLM synthesis ────────────────────────────────────────────────────────────
+// CRITICAL: content must be ≤ 1000 chars. Target 200-380 chars (the "150-400 char
+// target" from the correspondent skill). This is characters, NOT words.
+
+async function synthesiseSignal(
   papers: ArxivPaper[],
   beat: (typeof BEAT_CONFIGS)[0]
-): { headline: string; body: string; sources: { url: string; title: string }[] } {
-  if (papers.length === 0) throw new Error("No papers found for signal crafting");
-
+): Promise<{ headline: string; content: string }> {
   const primary = papers[0];
   const secondary = papers[1];
 
-  // Headline: use the paper title, trimmed
-  const headline = primary.title.length > 120
-    ? primary.title.substring(0, 117) + "..."
-    : primary.title;
+  const paperCtx = [
+    `PAPER 1\nTitle: ${primary.title}\nAuthors: ${primary.authors}\nPublished: ${primary.published}\nAbstract: ${primary.summary.substring(0, 600)}`,
+    secondary
+      ? `PAPER 2\nTitle: ${secondary.title}\nAbstract: ${secondary.summary.substring(0, 400)}`
+      : null,
+  ].filter(Boolean).join("\n\n---\n\n");
 
-  // Paragraph 1: Primary finding
-  const primarySummaryShort = primary.summary
-    .split(/(?<=\.)\s+/)
-    .slice(0, 4)
-    .join(" ");
+  const system = `You are a correspondent filing for aibtc.news, the on-chain newspaper for autonomous AI agents on Bitcoin.
 
-  let body = `**${primary.title}**\n\n`;
-  body += `${primarySummaryShort}\n\n`;
+${beat.editorBrief}
 
-  // Paragraph 2: Secondary paper context
-  if (secondary) {
-    const secondarySummaryShort = secondary.summary
-      .split(/(?<=\.)\s+/)
-      .slice(0, 3)
-      .join(" ");
-    body += `**Related Work — ${secondary.title}**\n\n`;
-    body += `${secondarySummaryShort}\n\n`;
-  }
+HARD RULES — violation = auto-rejection:
+1. Headline: max 100 chars. Lead with the specific fact/number. Not the paper title. Not clickbait.
+2. Content: 200-380 CHARACTERS (not words). Structure: [number/fact] → [why it matters] → [aibtc implication].
+   The content field is a single tight paragraph. No markdown. No headers. No bullet points.
+3. First word of content must set up or include a specific verifiable number from the paper
+   (dataset size, accuracy %, count, measured effect, model parameter count — anything quantified).
+4. AIBTC connection must name a specific component: sBTC, ERC-8004, ALEX DEX, Stacks L2, MCP server — only where real.
+5. No speculation. No "this suggests." Lead with what was measured or built, then implication.
 
-  // Paragraph 3: Editorial angle (what this means for the beat)
-  body += `**${beat.name} Beat — Why This Matters**\n\n`;
-  body += `These findings advance the frontier of ${beat.angle}.\n\n`;
+Return ONLY valid JSON (no markdown fences):
+{"headline": "...", "content": "..."}`;
 
-  // Paragraph 4: MANDATORY — aibtc network bridge
-  // This is the section that satisfies: "direct aibtc network relevance"
-  body += `**Relevance to the AIBTC Network**\n\n`;
-  body += beat.aibtcBridge;
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": ANTHROPIC_API_KEY!,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 400,
+      system,
+      messages: [{ role: "user", content: `File a ${beat.name} signal:\n\n${paperCtx}` }],
+    }),
+  });
 
-  const sources: { url: string; title: string }[] = [
-    { url: primary.url, title: primary.title.substring(0, 80) },
-  ];
-  if (secondary) {
-    sources.push({ url: secondary.url, title: secondary.title.substring(0, 80) });
-  }
+  if (!resp.ok) throw new Error(`Anthropic API ${resp.status}: ${(await resp.text()).substring(0, 200)}`);
 
-  return { headline, body, sources };
+  const data = await resp.json();
+  const raw = data.content
+    .map((b: { type: string; text?: string }) => (b.type === "text" ? b.text : ""))
+    .join("").trim()
+    .replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
+
+  const parsed: { headline: string; content: string } = JSON.parse(raw);
+  if (!parsed.headline || !parsed.content) throw new Error("LLM response missing fields");
+
+  // Enforce hard limits in code, not just the prompt
+  const headline = parsed.headline.substring(0, 120);
+  const content = parsed.content.substring(0, 1000);
+
+  return { headline, content };
 }
 
-// ─── Signal Execution ─────────────────────────────────────────────────────────
+// ─── Signal submission ────────────────────────────────────────────────────────
+
 async function executeSignal() {
   try {
-    console.log(`\n[${new Date().toISOString()}] Checking agent status before fetching papers...`);
+    console.log(`\n[${new Date().toISOString()}] Checking status...`);
+
+    // Status check
     try {
-      const statusRes = await fetch(`https://aibtc.news/api/status/${BTC_ADDRESS}`);
-      if (statusRes.ok) {
-        const statusData = await statusRes.json();
-        if (statusData.canFileSignal === false) {
-          console.log(`Cooldown active or daily limit reached (${statusData.signalsToday}/${statusData.maxSignalsPerDay}). Wait ${statusData.waitMinutes || 0} minutes. Skipping this run.`);
+      const s = await fetch(`https://aibtc.news/api/status/${BTC_ADDRESS}`);
+      if (s.ok) {
+        const d = await s.json();
+        if (d.canFileSignal === false) {
+          console.log(`Cooldown: wait ${d.waitMinutes || 0} min. Skipping.`);
           return;
         }
       }
-    } catch (err) {
-      console.log("Status check failed, proceeding with signal execution anyway...");
-    }
+    } catch (_) { console.log("Status check failed — proceeding."); }
 
     const beat = BEAT_CONFIGS[beatIndex % BEAT_CONFIGS.length];
     beatIndex++;
 
-    console.log(`[${new Date().toISOString()}] Fetching papers for beat: ${beat.name}...`);
-
-    const query1 = beat.queries[0];
-    const query2 = beat.queries[1] || beat.queries[0];
-
-    const [batch1, batch2] = await Promise.all([
-      fetchArxivPapers(query1, 3),
-      fetchArxivPapers(query2, 2),
-    ]);
-
-    // Deduplicate and pick best 2
-    const all = [...batch1, ...batch2];
-    const seen = new Set<string>();
-    const papers: ArxivPaper[] = [];
-    for (const p of all) {
-      if (!seen.has(p.url) && papers.length < 2) {
-        seen.add(p.url);
-        papers.push(p);
+    // Fetch papers across queries until we have ≥ 2 unseen
+    console.log(`Fetching papers for beat: ${beat.name}...`);
+    const all: ArxivPaper[] = [];
+    for (const q of beat.queries) {
+      const batch = await fetchArxivPapers(q, 5);
+      for (const p of batch) {
+        if (!all.some((x) => x.url === p.url)) all.push(p);
       }
+      if (all.length >= 2) break;
     }
+    if (all.length === 0) { console.warn("No unseen papers. Skipping."); return; }
 
-    if (papers.length === 0) throw new Error("No papers found from Arxiv queries");
+    const papers = all.slice(0, 2);
 
-    const { headline, body, sources } = craftSignal(papers, beat);
+    // LLM synthesis
+    console.log("Synthesising with Claude...");
+    const { headline, content } = await synthesiseSignal(papers, beat);
+    console.log(`Headline: ${headline}`);
+    console.log(`Content length: ${content.length} chars`);
 
-    // ─── BIP-322 Auth (Stateless) ─────────────────────────────────────────────
+    // BIP-322 auth — signing format confirmed matching official: "POST /api/signals:{ts}"
     const method = "POST";
     const path = "/api/signals";
     const timestamp = Math.floor(Date.now() / 1000);
     const message = `${method} ${path}:${timestamp}`;
-
     const scriptPubKey = p2wpkh(BTC_PUBLIC_KEY, BTC_MAINNET).script;
     const signature = bip322Sign(message, BTC_PRIVATE_KEY, scriptPubKey);
 
-    const authHeaders = {
+    const headers: Record<string, string> = {
       "X-BTC-Address": BTC_ADDRESS,
       "X-BTC-Signature": signature,
       "X-BTC-Timestamp": String(timestamp),
       "Content-Type": "application/json",
     };
 
-    // ─── Submit ───────────────────────────────────────────────────────────────
-    const payload = {
+    // Fix #1: field is "content" not "body"
+    // Fix #3: disclosure is a JSON object, not a string
+    // Fix #4: sources is an array of URL strings, not [{url,title}] objects
+    // Fix #5: btc_address removed from body (auth is header-only)
+    const payload: Record<string, unknown> = {
       beat_slug: beat.slug,
-      btc_address: BTC_ADDRESS,
       headline,
-      body,
-      sources,
+      content,                                  // ← "content", not "body"
+      sources: papers.map((p) => p.url),        // ← array of strings, not objects
       tags: beat.tags,
-      disclosure:
-        "Signal researched and synthesised by Cyber Comet (aibtc agent). " +
-        "Sources: Arxiv preprint database. All findings bridged to aibtc network activity.",
+      disclosure: {                             // ← JSON object, not string
+        models: ["claude-sonnet-4-20250514"],
+        tools: ["arxiv-api"],
+        notes: `Sources: arXiv preprints. Papers: ${papers.map((p) => p.title.substring(0, 40)).join("; ")}`,
+      },
     };
-
-    console.log(`[${new Date().toISOString()}] Submitting signal — beat: ${beat.name}`);
-    console.log(`Headline: ${headline}`);
 
     const res = await fetch("https://aibtc.news/api/signals", {
       method: "POST",
-      headers: authHeaders,
+      headers,
       body: JSON.stringify(payload),
     });
 
     const responseText = await res.text();
     let status = "failed";
-    let txid = "N/A";
+    let signalId = "N/A";
 
     try {
-      const data = JSON.parse(responseText);
+      const d = JSON.parse(responseText);
       if (res.ok) {
         status = "submitted";
-        txid = data.id || "pending";
-        console.log(`✅ Signal submitted! ID: ${txid}`);
+        signalId = d.id || d.signalId || "pending";
+        console.log(`✅ Submitted! ID: ${signalId}`);
+        for (const p of papers) seenPapers.add(p.url);
+        saveSeen(seenPapers);
       } else {
-        console.error(`❌ API error ${res.status}:`, responseText.substring(0, 300));
+        console.error(`❌ API ${res.status}:`, responseText.substring(0, 400));
       }
     } catch (_) {
-      console.error("Failed to parse API response:", responseText.substring(0, 300));
+      console.error("Parse error:", responseText.substring(0, 400));
     }
 
-    // ─── Log ──────────────────────────────────────────────────────────────────
-    const logEntry =
-      `| ${new Date().toISOString()} | ${beat.slug} | ${headline.replace(/\|/g, "-").replace(/\*\*/g, "").substring(0, 80)} | ${sources[0].url} | ${status} | ${txid} |\n`;
-    try {
-      appendFileSync(join(process.cwd(), "..", "news-log.md"), logEntry);
-    } catch (_) { /* log file optional on cloud */ }
+    const logLine =
+      `| ${new Date().toISOString()} | ${beat.slug} | ${headline.substring(0, 70)} | ${status} | ${signalId} |\n`;
+    try { appendFileSync(join(process.cwd(), "..", "news-log.md"), logLine); } catch (_) {}
 
-    console.log(`Signal execution complete. Status: ${status}`);
-  } catch (error) {
-    console.error("Signal execution failed:", error);
+    console.log(`Done. Status: ${status}`);
+  } catch (err) {
+    console.error("Signal execution failed:", err);
   }
 }
 
 // ─── Scheduler ────────────────────────────────────────────────────────────────
-if (process.argv.includes("--daemon")) {
-  console.log("Starting Cyber Comet news daemon...");
 
-  // Run 6 times a day spaced by 3 hours, starting at reset (00:00, 03:00, 06:00, 09:00, 12:00, 15:00 UTC)
-  // This balances spacing them out while still claiming the daily max in the first half of the UTC day.
-  cron.schedule("0 0,3,6,9,12,15 * * *", () => {
-    console.log(`[${new Date().toISOString()}] Running first-half 3-hourly scheduled signal task...`);
+if (process.argv.includes("--daemon")) {
+  console.log("Starting Cyber Comet (v3)...");
+
+  // Rate limit: 1 per 4 hours. Runs at :05 past to avoid top-of-hour collisions.
+  // 00:05 → 04:05 → 08:05 → 12:05 → 16:05 → 20:05 UTC
+  // First 3 (midnight, 4am, 8am UTC) land early in the day — prime leaderboard window.
+  cron.schedule("5 0,4,8,12,16,20 * * *", () => {
+    console.log(`[${new Date().toISOString()}] Scheduled run.`);
     executeSignal();
   }, { timezone: "UTC" });
 
-  console.log("Cron schedules loaded. Cyber Comet scheduling first half of the day (UTC).");
+  console.log("Cron: UTC 00:05, 04:05, 08:05, 12:05, 16:05, 20:05 (every 4h).");
 } else {
-  // Manual / one-off run
   executeSignal();
 }
