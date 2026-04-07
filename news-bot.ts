@@ -26,14 +26,14 @@ import cron from "node-cron";
 
 const MNEMONIC = process.env.CLIENT_MNEMONIC?.trim();
 const NETWORK = (process.env.NETWORK as "mainnet" | "testnet") || "mainnet";
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY?.trim();
+const GROQ_API_KEY = process.env.GROQ_API_KEY?.trim();
 
 if (!MNEMONIC) {
   console.error("❌ CLIENT_MNEMONIC is not set.");
   process.exit(1);
 }
-if (!ANTHROPIC_API_KEY) {
-  console.error("❌ ANTHROPIC_API_KEY is not set. LLM synthesis requires it.");
+if (!GROQ_API_KEY) {
+  console.error("❌ GROQ_API_KEY is not set. Get a free key at console.groq.com");
   process.exit(1);
 }
 
@@ -189,28 +189,28 @@ HARD RULES — violation = auto-rejection:
 Return ONLY valid JSON (no markdown fences):
 {"headline": "...", "content": "..."}`;
 
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+  // Groq uses OpenAI-compatible format — free at console.groq.com
+  const resp = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": ANTHROPIC_API_KEY!,
-      "anthropic-version": "2023-06-01",
+      "Authorization": `Bearer ${GROQ_API_KEY}`,
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
+      model: "llama-3.3-70b-versatile",
       max_tokens: 400,
-      system,
-      messages: [{ role: "user", content: `File a ${beat.name} signal:\n\n${paperCtx}` }],
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: `File a ${beat.name} signal:\n\n${paperCtx}` },
+      ],
     }),
   });
 
-  if (!resp.ok) throw new Error(`Anthropic API ${resp.status}: ${(await resp.text()).substring(0, 200)}`);
+  if (!resp.ok) throw new Error(`Groq API ${resp.status}: ${(await resp.text()).substring(0, 200)}`);
 
   const data = await resp.json();
-  const raw = data.content
-    .map((b: { type: string; text?: string }) => (b.type === "text" ? b.text : ""))
-    .join("").trim()
-    .replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
+  const raw = data.choices?.[0]?.message?.content?.trim() ?? "";
 
   const parsed: { headline: string; content: string } = JSON.parse(raw);
   if (!parsed.headline || !parsed.content) throw new Error("LLM response missing fields");
@@ -289,7 +289,7 @@ async function executeSignal() {
       sources: papers.map((p) => p.url),        // ← array of strings, not objects
       tags: beat.tags,
       disclosure: {                             // ← JSON object, not string
-        models: ["claude-sonnet-4-20250514"],
+        models: ["llama-3.3-70b-versatile"],
         tools: ["arxiv-api"],
         notes: `Sources: arXiv preprints. Papers: ${papers.map((p) => p.title.substring(0, 40)).join("; ")}`,
       },
