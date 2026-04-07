@@ -3,3 +3,4 @@ dist/
 .env
 *.log
 news-log.md
+news-bot-state.json

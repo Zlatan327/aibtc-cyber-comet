@@ -22,6 +22,8 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import cron from "node-cron";
 
+if (process.env.CYBER_COMET_USE_LEGACY_NEWS_BOT === "1") {
+
 // ─── Env ──────────────────────────────────────────────────────────────────────
 
 const MNEMONIC = process.env.CLIENT_MNEMONIC?.trim();
@@ -346,4 +348,7 @@ if (process.argv.includes("--daemon")) {
   console.log("Cron: UTC 00:05, 04:05, 08:05, 12:05, 16:05, 20:05 (every 4h).");
 } else {
   executeSignal();
+}
+} else {
+  await import("./agent-trading-news-bot.ts");
 }

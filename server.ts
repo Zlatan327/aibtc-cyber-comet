@@ -18,8 +18,8 @@ const heartbeat = spawn("npx", ["tsx", join(__dirname, "heartbeat.ts")], {
   env: { ...process.env }
 });
 
-// Boot the news bot in daemon mode
-const newsbot = spawn("npx", ["tsx", join(__dirname, "news-bot.ts"), "--daemon"], {
+// Boot the Agent Trading news bot in daemon mode
+const newsbot = spawn("npx", ["tsx", join(__dirname, "agent-trading-news-bot.ts"), "--daemon"], {
   stdio: "inherit",
   shell: true,
   env: { ...process.env }
