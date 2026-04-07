@@ -152,6 +152,22 @@ function formatSignedPct(value: number): string {
   return `${sign}${round(value, 1)}%`;
 }
 
+function finishSentence(text: string): string {
+  return `${text.trim().replace(/\s+/g, " ").replace(/[.!?]+$/, "")}.`;
+}
+
+function buildEditorialBody(
+  claim: string,
+  evidence: string,
+  implication: string,
+  maxLength = 1000
+): string {
+  return clampText(
+    [claim, evidence, implication].map((sentence) => finishSentence(sentence)).join(" "),
+    maxLength
+  );
+}
+
 function normaliseText(text: string): string[] {
   return text
     .toLowerCase()
@@ -227,13 +243,14 @@ function buildVenueSpreadCandidate(
   }
 
   const headline = clampText(
-    `JingSwap quotes ${formatInteger(dex.dlmmStxPerBtc)} STX/BTC vs Bitflow ${formatInteger(bitflow.lastPrice)} while cycle ${cycle.currentCycle} still has ${formatInteger(cycle.totalSbtc)} sats and 0 STX`,
+    `AIBTC agents face a non-executable JingSwap quote: cycle ${cycle.currentCycle} shows ${formatInteger(cycle.totalSbtc)} sats bid and 0 STX`,
     120
   );
 
-  const body = clampText(
-    `3 sBTC/STX venues currently print ${formatInteger(bitflow.lastPrice)}, ${formatInteger(dex.xykStxPerBtc)} and ${formatInteger(dex.dlmmStxPerBtc)} STX/BTC, a ${formatPct(spreadPct)} spread from best to worst. Cycle ${cycle.currentCycle} still has ${formatInteger(cycle.totalSbtc)} sats from ${depositors.sbtcDepositors.length} sBTC depositors against 0 STX after ${formatInteger(cycle.blocksElapsed)} blocks, so the high JingSwap quote has no executable depth. Agents routing size should use Bitflow or JingSwap XYK until real STX liquidity arrives.`,
-    1000
+  const body = buildEditorialBody(
+    `AIBTC agents are looking at a phantom top-of-book on JingSwap because cycle ${cycle.currentCycle} still has buyers but no STX resting on the other side`,
+    `Bitflow prints ${formatInteger(bitflow.lastPrice)} STX/BTC, JingSwap XYK ${formatInteger(dex.xykStxPerBtc)}, and JingSwap DLMM ${formatInteger(dex.dlmmStxPerBtc)}, but that headline-high quote sits beside only ${formatInteger(cycle.totalSbtc)} sats from ${depositors.sbtcDepositors.length} sBTC depositors and 0 STX after ${formatInteger(cycle.blocksElapsed)} blocks`,
+    `For AIBTC agent traders, that means routing executable size to Bitflow or JingSwap XYK until real STX liquidity arrives and the spread becomes tradable`
   );
 
   const sources: NewsSource[] = [
@@ -288,13 +305,14 @@ function buildAuctionImbalanceCandidate(
   const activeWallets = bidOnly ? depositors.sbtcDepositors.length : depositors.stxDepositors.length;
 
   const headline = clampText(
-    `Cycle ${settlement.cycle} cleared ${formatInteger(settlement.sbtcCleared)} sats at ${formatInteger(settlement.stxPerBtc)} STX/BTC; cycle ${cycle.currentCycle} reopened ${queueAmount} with no ${missingSide}`,
+    `JingSwap reopened cycle ${cycle.currentCycle} one-sided, so AIBTC agents still lack a reliable opening price`,
     120
   );
 
-  const body = clampText(
-    `Cycle ${settlement.cycle} settled ${formatInteger(settlement.sbtcCleared)} sats against ${round(settlement.stxCleared, 2)} STX at ${formatInteger(settlement.stxPerBtc)} STX/BTC. Cycle ${cycle.currentCycle} has already reopened with ${queueAmount} from ${activeWallets} wallets and 0 ${missingSide} after ${formatInteger(cycle.blocksElapsed)} blocks, so the next ${missingSide} order will set the opening book. That makes JingSwap a first-mover auction right now, not a continuous market agents can size against safely.`,
-    1000
+  const body = buildEditorialBody(
+    `JingSwap is acting like a queue, not a balanced market, at the start of cycle ${cycle.currentCycle}`,
+    `Cycle ${settlement.cycle} cleared ${formatInteger(settlement.sbtcCleared)} sats against ${round(settlement.stxCleared, 2)} STX at ${formatInteger(settlement.stxPerBtc)} STX/BTC, then cycle ${cycle.currentCycle} reopened with ${queueAmount} from ${activeWallets} wallets and 0 ${missingSide} after ${formatInteger(cycle.blocksElapsed)} blocks`,
+    `For AIBTC agent traders, that means treating the venue as a first-mover auction where the next ${missingSide} order can define the opening book instead of assuming continuous liquidity`
   );
 
   return {
@@ -348,13 +366,14 @@ function buildMarketShareCandidate(
   }
 
   const headline = clampText(
-    `Bitflow sBTC/STX took ${formatPct(sharePct)} of Stacks DEX volume on ${formatInteger(pool.swaps1d)} swaps while daily flow stayed at ${formatUsd(latest.volumeUsd)}`,
+    `Bitflow handled ${formatPct(sharePct)} of Stacks DEX volume, showing how thin sBTC execution still is for AIBTC agents`,
     120
   );
 
-  const body = clampText(
-    `Bitflow's sBTC/STX pool handled ${formatUsd(pool.volume1dUsd)} across ${formatInteger(pool.swaps1d)} swaps in the last day, ${formatPct(sharePct)} of the full ${formatUsd(latest.volumeUsd)} Stacks DEX tape. Market-wide netflow sat at ${formatUsd(latest.netflowUsd)} with ${formatInteger(latest.uniqueTraders)} traders and ${formatInteger(latest.uniquePools)} pools, a ${formatSignedPct(dailyChangePct)} move versus the prior session. That concentration means one agent-sized sBTC order can still distort the market more than the headline spread implies.`,
-    1000
+  const body = buildEditorialBody(
+    `AIBTC agent trading is still concentrated in one thin sBTC corridor instead of a deep multi-venue market`,
+    `Bitflow's sBTC/STX pool handled ${formatUsd(pool.volume1dUsd)} across ${formatInteger(pool.swaps1d)} swaps in the last day, ${formatPct(sharePct)} of the full ${formatUsd(latest.volumeUsd)} Stacks DEX tape, while market-wide netflow sat at ${formatUsd(latest.netflowUsd)} with ${formatInteger(latest.uniqueTraders)} traders and ${formatInteger(latest.uniquePools)} pools, a ${formatSignedPct(dailyChangePct)} move versus the prior session`,
+    `For AIBTC agent traders, that concentration means a single agent-sized sBTC order can still move price more than headline spreads suggest`
   );
 
   return {

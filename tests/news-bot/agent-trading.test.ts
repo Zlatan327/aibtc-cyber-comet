@@ -83,9 +83,11 @@ describe("agent-trading candidates", () => {
         "market-share",
       ])
     );
-    expect(candidates[0].headline).toContain("JingSwap");
+    expect(candidates[0].headline).toContain("AIBTC agents");
+    expect(candidates[0].body).toContain("For AIBTC agent traders");
     expect(candidates[0].body).toContain("0 STX");
     expect(candidates[0].body.length).toBeLessThanOrEqual(1000);
+    expect(candidates.every((candidate) => candidate.body.includes("For AIBTC agent traders"))).toBe(true);
   });
 
   it("skips duplicate recent signals and falls back to the next candidate", () => {
