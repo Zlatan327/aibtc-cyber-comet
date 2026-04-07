@@ -7,6 +7,7 @@ import {
   TEST_NETWORK as BTC_TESTNET,
   p2wpkh,
 } from "@scure/btc-signer";
+import { contractPrincipalCV, cvToHex, cvToValue, hexToCV } from "@stacks/transactions";
 import { deriveBitcoinKeyPair } from "./src/utils/bitcoin.js";
 import { bip322Sign } from "./src/utils/bip322.js";
 import {
@@ -25,6 +26,7 @@ import {
   type MarketStatsPoint,
   type RemoteSignal,
   type TrendingPoolSnapshot,
+  type ZestReserveSnapshot,
 } from "./src/news-bot/agent-trading.js";
 
 const MNEMONIC = process.env.CLIENT_MNEMONIC?.trim();
@@ -46,8 +48,12 @@ const JINGSWAP_API = process.env.JINGSWAP_API_URL || "https://faktory-dao-backen
 const JINGSWAP_API_KEY =
   process.env.JINGSWAP_API_KEY ||
   "jc_b058d7f2e0976bd4ee34be3e5c7ba7ebe45289c55d3f5e45f666ebc14b7ebfd0";
+const HIRO_MAINNET_API = "https://api.mainnet.hiro.so";
+const ZEST_POOL_CONTRACT = "SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N";
+const ZEST_POOL_NAME = "pool-borrow-v2-3";
 
 const SBTC_CONTRACT = "SM3VDXK3WZZSA84XXFKAFAF15NNZX32CTSG82JFQ4.sbtc-token";
+const [SBTC_TOKEN_ADDRESS, SBTC_TOKEN_NAME] = SBTC_CONTRACT.split(".");
 const BITFLOW_SBTC_STX_TICKER_ID = `${SBTC_CONTRACT}_Stacks`;
 const BITFLOW_SBTC_STX_POOL_ID = "SM1793C4R5PZ4NS4VQ4WMP7SKKYVH8JZEWSZ9HCCR.xyk-pool-sbtc-stx-v-1-1";
 
@@ -82,6 +88,35 @@ function safeNumber(value: unknown): number {
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
+}
+
+function safeBigIntToNumber(value: bigint): number {
+  return value > BigInt(Number.MAX_SAFE_INTEGER)
+    ? Number.MAX_SAFE_INTEGER
+    : Number(value);
+}
+
+function decodeTupleField(result: string, field: string): bigint | null {
+  try {
+    const hex = result.startsWith("0x") ? result.slice(2) : result;
+    const cv = hexToCV(hex);
+    const decoded = cvToValue(cv, true) as Record<string, unknown>;
+    const value = decoded[field];
+
+    if (typeof value === "bigint") {
+      return value;
+    }
+    if (typeof value === "number") {
+      return BigInt(value);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function rayToPct(value: bigint): number {
+  return Number(value / 10n ** 23n) / 100;
 }
 
 function formatDateParts(date: Date, timeZone: string): Record<string, string> {
@@ -379,6 +414,40 @@ async function fetchJingswapSettlement(
   };
 }
 
+async function fetchZestReserve(): Promise<ZestReserveSnapshot | undefined> {
+  if (NETWORK !== "mainnet") {
+    return undefined;
+  }
+
+  const sbtcPrincipal = cvToHex(contractPrincipalCV(SBTC_TOKEN_ADDRESS, SBTC_TOKEN_NAME));
+  const response = await fetchJson<{ okay?: boolean; result?: string }>(
+    `${HIRO_MAINNET_API}/v2/contracts/call-read/${ZEST_POOL_CONTRACT}/${ZEST_POOL_NAME}/get-reserve-state`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sender: ZEST_POOL_CONTRACT,
+        arguments: [sbtcPrincipal],
+      }),
+    }
+  );
+
+  if (!response.okay || !response.result) {
+    return undefined;
+  }
+
+  const liquidityRate = decodeTupleField(response.result, "current-liquidity-rate");
+  const borrowsStable = decodeTupleField(response.result, "total-borrows-stable") ?? 0n;
+  const borrowsVariable = decodeTupleField(response.result, "total-borrows-variable") ?? 0n;
+
+  return {
+    supplyApyPct: liquidityRate ? rayToPct(liquidityRate) : 0,
+    totalBorrowsSats: safeBigIntToNumber(borrowsStable + borrowsVariable),
+  };
+}
+
 async function buildSnapshot(): Promise<{
   status: StatusResponse;
   recentSignals: RemoteSignal[];
@@ -389,13 +458,14 @@ async function buildSnapshot(): Promise<{
     fetchRecentBeatSignals(),
   ]);
 
-  const [bitflow, marketStats, trendingPool, jingswapDex, jingswapCycle] =
+  const [bitflow, marketStats, trendingPool, jingswapDex, jingswapCycle, zestReserve] =
     await Promise.allSettled([
       fetchBitflowTicker(),
       fetchMarketStats(),
       fetchTrendingPool(),
       fetchJingswapDex(),
       fetchJingswapCycle(),
+      fetchZestReserve(),
     ]);
 
   const snapshot: AgentTradingSnapshot = {
@@ -404,6 +474,7 @@ async function buildSnapshot(): Promise<{
     trendingPool: trendingPool.status === "fulfilled" ? trendingPool.value : undefined,
     jingswapDex: jingswapDex.status === "fulfilled" ? jingswapDex.value : undefined,
     jingswapCycle: jingswapCycle.status === "fulfilled" ? jingswapCycle.value : undefined,
+    zestReserve: zestReserve.status === "fulfilled" ? zestReserve.value : undefined,
   };
 
   if (snapshot.jingswapCycle) {

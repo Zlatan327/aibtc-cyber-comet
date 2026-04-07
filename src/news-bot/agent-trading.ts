@@ -4,7 +4,7 @@
 }
 
 export interface CandidateSignal {
-  kind: "venue-spread" | "auction-imbalance" | "market-share";
+  kind: "venue-spread" | "auction-imbalance" | "market-share" | "zest-liquidity";
   headline: string;
   body: string;
   sources: NewsSource[];
@@ -90,6 +90,11 @@ export interface JingswapSettlementSnapshot {
   stxPerBtc: number;
 }
 
+export interface ZestReserveSnapshot {
+  supplyApyPct: number;
+  totalBorrowsSats: number;
+}
+
 export interface AgentTradingSnapshot {
   bitflow?: BitflowTickerSnapshot;
   marketStats?: MarketStatsPoint[];
@@ -98,6 +103,7 @@ export interface AgentTradingSnapshot {
   jingswapCycle?: JingswapCycleStateSnapshot;
   jingswapDepositors?: JingswapDepositorsSnapshot;
   previousSettlement?: JingswapSettlementSnapshot;
+  zestReserve?: ZestReserveSnapshot;
 }
 
 const STOP_WORDS = new Set([
@@ -396,6 +402,52 @@ function buildMarketShareCandidate(
   };
 }
 
+function buildZestLiquidityCandidate(
+  snapshot: AgentTradingSnapshot
+): CandidateSignal | null {
+  const zest = snapshot.zestReserve;
+  if (!zest) {
+    return null;
+  }
+
+  if (zest.supplyApyPct < 2.5 && zest.totalBorrowsSats < 2_000_000) {
+    return null;
+  }
+
+  const headline = clampText(
+    `Zest is paying ${formatPct(zest.supplyApyPct)} on sBTC while ${formatInteger(zest.totalBorrowsSats)} sats are already borrowed`,
+    120
+  );
+
+  const body = buildEditorialBody(
+    "Zest's sBTC market is active enough to matter for how AIBTC agents park capital between trades",
+    `The live reserve state implies ${formatPct(zest.supplyApyPct)} supply APY with ${formatInteger(zest.totalBorrowsSats)} sats already borrowed from the pool, so agent demand for idle sBTC carry is no longer trivial`,
+    "For AIBTC agent traders, that makes Zest part of the execution stack: idle inventory can earn yield between trades, but tighter lending liquidity can also crowd short-term funding and position management"
+  );
+
+  return {
+    kind: "zest-liquidity",
+    headline,
+    body,
+    sources: [
+      {
+        url: "https://api.mainnet.hiro.so/v2/contracts/call-read/SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N/pool-borrow-v2-3/get-reserve-state",
+        title: `Hiro read-only call - Zest sBTC reserve at ${formatPct(zest.supplyApyPct)} APY with ${formatInteger(zest.totalBorrowsSats)} sats borrowed`,
+      },
+      {
+        url: "https://explorer.hiro.so/address/SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N.pool-borrow-v2-3?chain=mainnet",
+        title: "Hiro Explorer - Zest sBTC lending pool contract",
+      },
+    ],
+    tags: ["agent-trading", "positions", "sbtc", "stacks", "yield", "zest"],
+    fingerprint: `zest-liquidity:${round(zest.supplyApyPct, 1)}:${round(zest.totalBorrowsSats, 0)}`,
+    score:
+      68 +
+      Math.min(zest.supplyApyPct, 12) +
+      Math.min(zest.totalBorrowsSats / 5_000_000, 8),
+  };
+}
+
 export function buildAgentTradingCandidates(
   snapshot: AgentTradingSnapshot
 ): CandidateSignal[] {
@@ -403,9 +455,44 @@ export function buildAgentTradingCandidates(
     buildVenueSpreadCandidate(snapshot),
     buildAuctionImbalanceCandidate(snapshot),
     buildMarketShareCandidate(snapshot),
+    buildZestLiquidityCandidate(snapshot),
   ]
     .filter((candidate): candidate is CandidateSignal => candidate !== null)
     .sort((left, right) => right.score - left.score);
+}
+
+function getCandidateTheme(kind: CandidateSignal["kind"]): "jingswap" | "bitflow" | "zest" {
+  if (kind === "venue-spread" || kind === "auction-imbalance") {
+    return "jingswap";
+  }
+  if (kind === "market-share") {
+    return "bitflow";
+  }
+  return "zest";
+}
+
+function getSelectionScore(candidate: CandidateSignal, state: BotState): number {
+  const recentSubmittedAttempts = state.attempts.filter((attempt) => {
+    if (attempt.outcome !== "submitted" || !attempt.kind) {
+      return false;
+    }
+
+    const ageMs = Date.now() - new Date(attempt.at).getTime();
+    return ageMs >= 0 && ageMs <= 36 * 60 * 60 * 1000;
+  });
+
+  let score = candidate.score;
+  if (recentSubmittedAttempts.some((attempt) => attempt.kind === candidate.kind)) {
+    score -= 18;
+  } else if (
+    recentSubmittedAttempts.some(
+      (attempt) => getCandidateTheme(attempt.kind!) === getCandidateTheme(candidate.kind)
+    )
+  ) {
+    score -= 10;
+  }
+
+  return score;
 }
 
 function isDuplicateAgainstRecentSignals(
@@ -450,19 +537,29 @@ export function selectCandidate(
   state: BotState,
   pacificDate: string
 ): CandidateSignal | null {
-  for (const candidate of candidates) {
+  const eligible = candidates.filter((candidate) => {
     if (state.postedFingerprints.includes(candidate.fingerprint)) {
-      continue;
+      return false;
     }
 
     if (isDuplicateAgainstRecentSignals(candidate, recentSignals, pacificDate)) {
-      continue;
+      return false;
     }
 
-    return candidate;
+    return true;
+  });
+
+  if (eligible.length === 0) {
+    return null;
   }
 
-  return null;
+  return eligible.sort((left, right) => {
+    const scoreDelta = getSelectionScore(right, state) - getSelectionScore(left, state);
+    if (scoreDelta !== 0) {
+      return scoreDelta;
+    }
+    return right.score - left.score;
+  })[0];
 }
 
 export function createEmptyBotState(): BotState {

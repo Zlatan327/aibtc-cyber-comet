@@ -69,6 +69,10 @@ function createSnapshot(): AgentTradingSnapshot {
       sbtcCleared: 319,
       stxPerBtc: 315_701.61,
     },
+    zestReserve: {
+      supplyApyPct: 6.4,
+      totalBorrowsSats: 12_800_000,
+    },
   };
 }
 
@@ -81,6 +85,7 @@ describe("agent-trading candidates", () => {
         "venue-spread",
         "auction-imbalance",
         "market-share",
+        "zest-liquidity",
       ])
     );
     expect(candidates[0].headline).toContain("AIBTC agents");
@@ -117,6 +122,22 @@ describe("agent-trading candidates", () => {
 
     expect(selected?.kind).not.toBe("venue-spread");
     expect(["auction-imbalance", "market-share"]).toContain(selected?.kind);
+  });
+
+  it("deprioritizes repeating the same signal family when alternatives exist", () => {
+    const candidates = buildAgentTradingCandidates(createSnapshot());
+    const state = createEmptyBotState();
+
+    state.attempts.push({
+      at: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      kind: "venue-spread",
+      outcome: "submitted",
+      note: "submitted recent venue-spread",
+    });
+
+    const selected = selectCandidate(candidates, [], state, "2026-04-07");
+
+    expect(selected?.kind).not.toBe("venue-spread");
   });
 });
 
