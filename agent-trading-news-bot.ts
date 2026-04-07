@@ -32,6 +32,10 @@ const NETWORK = (process.env.NETWORK as "mainnet" | "testnet") || "mainnet";
 const NEWS_API = "https://aibtc.news/api";
 const NEWS_BOT_TIMEZONE = process.env.NEWS_BOT_TIMEZONE?.trim() || "America/Los_Angeles";
 const NEWS_BOT_CRON = process.env.NEWS_BOT_CRON?.trim() || "5 0,1,2,3,4,5 * * *";
+const TRANSITION_DATE_UTC = "2026-04-07";
+const TRANSITION_GUIDE_CRON_UTC = "5 13,20 7 4 *";
+const TRANSITION_CATCHUP_AFTER_UTC = "2026-04-07T13:05:00Z";
+const TRANSITION_END_UTC = "2026-04-08T00:00:00Z";
 const STATE_PATH = join(process.cwd(), "news-bot-state.json");
 const LOG_PATH = join(process.cwd(), "news-log.md");
 
@@ -108,6 +112,10 @@ function getPacificDate(date = new Date()): string {
 function getTimezoneHour(date = new Date()): number {
   const parts = formatDateParts(date, NEWS_BOT_TIMEZONE);
   return Number(parts.hour || "0");
+}
+
+function getUtcDate(date = new Date()): string {
+  return date.toISOString().slice(0, 10);
 }
 
 function ensureLogHeader(): void {
@@ -447,6 +455,29 @@ function shouldRunStartupCatchup(state: BotState): boolean {
   return elapsed > 55 * 60 * 1000;
 }
 
+function shouldRunTransitionCatchup(state: BotState): boolean {
+  const now = new Date();
+  if (getUtcDate(now) !== TRANSITION_DATE_UTC) {
+    return false;
+  }
+
+  const nowMs = now.getTime();
+  if (
+    nowMs < Date.parse(TRANSITION_CATCHUP_AFTER_UTC) ||
+    nowMs >= Date.parse(TRANSITION_END_UTC)
+  ) {
+    return false;
+  }
+
+  const lastAttempt = state.attempts[state.attempts.length - 1];
+  if (!lastAttempt) {
+    return true;
+  }
+
+  const elapsed = nowMs - new Date(lastAttempt.at).getTime();
+  return elapsed > 55 * 60 * 1000;
+}
+
 let runInProgress = false;
 const state = loadState();
 
@@ -581,6 +612,25 @@ function startDaemon(): void {
     },
     { timezone: NEWS_BOT_TIMEZONE }
   );
+
+  if (cron.validate(TRANSITION_GUIDE_CRON_UTC) && getUtcDate() === TRANSITION_DATE_UTC) {
+    console.log(
+      `[news-bot] Transition schedule for ${TRANSITION_DATE_UTC}: ${TRANSITION_GUIDE_CRON_UTC} (UTC)`
+    );
+
+    cron.schedule(
+      TRANSITION_GUIDE_CRON_UTC,
+      () => {
+        void executeSignal("transition-guide-slot");
+      },
+      { timezone: "UTC" }
+    );
+  }
+
+  if (shouldRunTransitionCatchup(state)) {
+    console.log(`[news-bot] ${TRANSITION_DATE_UTC} transition catch-up is eligible.`);
+    void executeSignal("transition-catchup");
+  }
 
   if (shouldRunStartupCatchup(state)) {
     console.log("[news-bot] Startup catch-up run is eligible.");
