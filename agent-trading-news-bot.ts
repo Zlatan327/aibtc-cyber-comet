@@ -620,6 +620,7 @@ async function executeSignal(reason: string): Promise<void> {
     }
 
     const payload = {
+      btc_address: BTC_ADDRESS,
       beat_slug: "agent-trading",
       headline: candidate.headline,
       content: candidate.content,

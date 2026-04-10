@@ -73,7 +73,7 @@ function spawnManaged(
 // ─── Boot children ────────────────────────────────────────────────────────────
 spawnManaged("heartbeat", [join(__dirname, "heartbeat.ts")]);
 // Small delay so heartbeat logs appear first
-spawnManaged("newsbot", [join(__dirname, "news-bot.ts"), "--daemon"], 2_000);
+spawnManaged("newsbot", [join(__dirname, "agent-trading-news-bot.ts"), "--daemon"], 2_000);
 
 // ─── HTTP server ──────────────────────────────────────────────────────────────
 const server = createServer((req: IncomingMessage, res: ServerResponse) => {
