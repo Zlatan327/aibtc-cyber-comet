@@ -32,8 +32,8 @@ import {
 const MNEMONIC = process.env.CLIENT_MNEMONIC?.trim();
 const NETWORK = (process.env.NETWORK as "mainnet" | "testnet") || "mainnet";
 const NEWS_API = "https://aibtc.news/api";
-const NEWS_BOT_TIMEZONE = process.env.NEWS_BOT_TIMEZONE?.trim() || "America/Los_Angeles";
-const NEWS_BOT_CRON = process.env.NEWS_BOT_CRON?.trim() || "5 0,1,2,3,4,5 * * *";
+const NEWS_BOT_TIMEZONE = process.env.NEWS_BOT_TIMEZONE?.trim() || "UTC";
+const NEWS_BOT_CRON = process.env.NEWS_BOT_CRON?.trim() || "5 */4 * * *";
 const TRANSITION_DATE_UTC = "2026-04-07";
 const TRANSITION_GUIDE_CRON_UTC = "5 13,20 7 4 *";
 const TRANSITION_CATCHUP_AFTER_UTC = "2026-04-07T13:05:00Z";
@@ -496,6 +496,14 @@ function buildDisclosure(): string {
   return "Cyber Comet | deterministic market-data synthesis via Bitflow, JingSwap, Tenero and aibtc.news API reads";
 }
 
+function buildDisclosureObject(): { models: string[]; tools: string[]; notes: string } {
+  return {
+    models: ["deterministic"],
+    tools: ["bitflow-ticker", "jingswap-cycle-state", "jingswap-dex-price", "jingswap-depositors", "jingswap-settlement", "tenero-market-stats", "tenero-trending-pools", "hiro-zest-reserve"],
+    notes: buildDisclosure(),
+  };
+}
+
 function buildAuthHeaders(): Record<string, string> {
   const timestamp = Math.floor(Date.now() / 1000);
   const message = `POST /api/signals:${timestamp}`;
@@ -612,13 +620,12 @@ async function executeSignal(reason: string): Promise<void> {
     }
 
     const payload = {
-      btc_address: BTC_ADDRESS,
       beat_slug: "agent-trading",
       headline: candidate.headline,
-      body: candidate.body,
-      sources: candidate.sources,
+      content: candidate.content,
+      sources: candidate.sources.map((s) => s.url),
       tags: candidate.tags,
-      disclosure: buildDisclosure(),
+      disclosure: buildDisclosureObject(),
     };
 
     console.log(`[news-bot] Filing ${candidate.kind}: ${candidate.headline}`);

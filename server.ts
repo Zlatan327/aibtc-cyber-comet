@@ -1,46 +1,132 @@
 /**
- * Render Web Service wrapper
+ * Render Web Service wrapper — Cyber Comet
+ *
  * Starts a minimal HTTP server so Render doesn't mark us as crashed,
- * while the real work runs in background threads.
+ * while the real work (heartbeat + news-bot) runs as supervised child processes.
+ *
+ * Features:
+ *  - Auto-restarts crashed child processes (with exponential back-off)
+ *  - /health endpoint shows live process status (used by UptimeBot)
+ *  - Graceful shutdown on SIGTERM
  */
-import { createServer } from "http";
-import { spawn } from "child_process";
+import { createServer, IncomingMessage, ServerResponse } from "http";
+import { spawn, ChildProcess } from "child_process";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
 const PORT = process.env.PORT || 3000;
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Boot the heartbeat process
-const heartbeat = spawn("npx", ["tsx", join(__dirname, "heartbeat.ts")], {
-  stdio: "inherit",
-  shell: true,
-  env: { ...process.env }
-});
+// ─── Process state tracking ──────────────────────────────────────────────────
+interface ManagedProcess {
+  name: string;
+  pid: number | undefined;
+  running: boolean;
+  restarts: number;
+  lastStarted: string;
+  lastExitCode: number | null;
+}
 
-// Boot the Agent Trading news bot in daemon mode
-const newsbot = spawn("npx", ["tsx", join(__dirname, "agent-trading-news-bot.ts"), "--daemon"], {
-  stdio: "inherit",
-  shell: true,
-  env: { ...process.env }
-});
+const state: Record<string, ManagedProcess> = {
+  heartbeat: { name: "heartbeat", pid: undefined, running: false, restarts: 0, lastStarted: "", lastExitCode: null },
+  newsbot:   { name: "newsbot",   pid: undefined, running: false, restarts: 0, lastStarted: "", lastExitCode: null },
+};
 
-heartbeat.on("exit", (code) => console.log(`[heartbeat] exited with code ${code}`));
-newsbot.on("exit", (code) => console.log(`[newsbot] exited with code ${code}`));
+// ─── Supervised spawn with auto-restart ──────────────────────────────────────
+function spawnManaged(
+  key: "heartbeat" | "newsbot",
+  args: string[],
+  delayMs = 0
+): void {
+  setTimeout(() => {
+    console.log(`[server] Launching ${key}...`);
+    const proc: ChildProcess = spawn("npx", ["tsx", ...args], {
+      stdio: "inherit",
+      shell: true,
+      env: { ...process.env },
+    });
 
-// Minimal HTTP server — just enough to keep Render happy
-const server = createServer((req, res) => {
+    const s = state[key];
+    s.pid = proc.pid;
+    s.running = true;
+    s.lastStarted = new Date().toISOString();
+
+    proc.on("exit", (code) => {
+      s.running = false;
+      s.pid = undefined;
+      s.lastExitCode = code;
+      console.log(`[server] ${key} exited with code ${code}`);
+
+      // Back-off: 10s, 20s, 40s … cap at 5 min
+      const backoffMs = Math.min(10_000 * 2 ** s.restarts, 5 * 60_000);
+      s.restarts++;
+      console.log(`[server] Restarting ${key} in ${backoffMs / 1000}s (attempt #${s.restarts})...`);
+      spawnManaged(key, args, backoffMs);
+    });
+
+    proc.on("error", (err) => {
+      console.error(`[server] Failed to start ${key}:`, err.message);
+    });
+  }, delayMs);
+}
+
+// ─── Boot children ────────────────────────────────────────────────────────────
+spawnManaged("heartbeat", [join(__dirname, "heartbeat.ts")]);
+// Small delay so heartbeat logs appear first
+spawnManaged("newsbot", [join(__dirname, "news-bot.ts"), "--daemon"], 2_000);
+
+// ─── HTTP server ──────────────────────────────────────────────────────────────
+const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+  const url = req.url ?? "/";
+
+  // /health — structured status (used by UptimeBot & Render health checks)
+  if (url === "/health" || url === "/health/") {
+    const healthy = state.heartbeat.running && state.newsbot.running;
+    res.writeHead(healthy ? 200 : 503, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      agent: "Cyber Comet",
+      status: healthy ? "healthy" : "degraded",
+      uptime: Math.floor(process.uptime()),
+      processes: {
+        heartbeat: {
+          running: state.heartbeat.running,
+          pid: state.heartbeat.pid,
+          restarts: state.heartbeat.restarts,
+          lastStarted: state.heartbeat.lastStarted,
+          lastExitCode: state.heartbeat.lastExitCode,
+        },
+        newsbot: {
+          running: state.newsbot.running,
+          pid: state.newsbot.pid,
+          restarts: state.newsbot.restarts,
+          lastStarted: state.newsbot.lastStarted,
+          lastExitCode: state.newsbot.lastExitCode,
+        },
+      },
+      timestamp: new Date().toISOString(),
+    }, null, 2));
+    return;
+  }
+
+  // / — root status page
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({
     agent: "Cyber Comet",
     status: "online",
     description: "AIBTC autonomous news correspondent",
-    btcAddress: "bc1qu7xnmfmcavj7y8t22ye6g43hjaq2ak7yfyxjnd",
-    network: "aibtc"
+    network: "aibtc",
+    healthEndpoint: "/health",
   }));
 });
 
 server.listen(PORT, () => {
-  console.log(`[server] Cyber Comet agent running on port ${PORT}`);
-  console.log("[server] Heartbeat + News Bot launched in background");
+  console.log(`[server] Cyber Comet running on port ${PORT}`);
+  console.log(`[server] Health check available at /health`);
+  console.log("[server] Heartbeat + News Bot launched with auto-restart supervision");
+});
+
+// ─── Graceful shutdown ────────────────────────────────────────────────────────
+process.on("SIGTERM", () => {
+  console.log("[server] SIGTERM received — shutting down...");
+  server.close(() => process.exit(0));
 });

@@ -1,11 +1,17 @@
 services:
-  - type: web
+  - type: worker
     name: aibtc-cyber-comet
     runtime: node
     buildCommand: npm install
-    startCommand: npm run start:web
+    startCommand: npx tsx agent-trading-news-bot.ts --daemon
     envVars:
       - key: CLIENT_MNEMONIC
         sync: false
       - key: NODE_ENV
         value: production
+      - key: NEWS_BOT_CRON
+        value: "5 */4 * * *"
+      - key: NEWS_BOT_TIMEZONE
+        value: UTC
+      - key: NETWORK
+        value: mainnet

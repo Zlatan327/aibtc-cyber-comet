@@ -1,4 +1,4 @@
-﻿export interface NewsSource {
+export interface NewsSource {
   url: string;
   title: string;
 }
@@ -6,7 +6,7 @@
 export interface CandidateSignal {
   kind: "venue-spread" | "auction-imbalance" | "market-share" | "zest-liquidity";
   headline: string;
-  body: string;
+  content: string;
   sources: NewsSource[];
   tags: string[];
   fingerprint: string;
@@ -244,7 +244,7 @@ function buildVenueSpreadCandidate(
   const spreadPct = ((maxPrice - minPrice) / minPrice) * 100;
   const bidOnly = cycle.totalStx === 0 && cycle.totalSbtc > 0;
 
-  if (!bidOnly && spreadPct < 1) {
+  if (!bidOnly && spreadPct < 0.3) {
     return null;
   }
 
@@ -253,7 +253,7 @@ function buildVenueSpreadCandidate(
     120
   );
 
-  const body = buildEditorialBody(
+  const content = buildEditorialBody(
     `AIBTC agents are looking at a phantom top-of-book on JingSwap because cycle ${cycle.currentCycle} still has buyers but no STX resting on the other side`,
     `Bitflow prints ${formatInteger(bitflow.lastPrice)} STX/BTC, JingSwap XYK ${formatInteger(dex.xykStxPerBtc)}, and JingSwap DLMM ${formatInteger(dex.dlmmStxPerBtc)}, but that headline-high quote sits beside only ${formatInteger(cycle.totalSbtc)} sats from ${depositors.sbtcDepositors.length} sBTC depositors and 0 STX after ${formatInteger(cycle.blocksElapsed)} blocks`,
     `For AIBTC agent traders, that means routing executable size to Bitflow or JingSwap XYK until real STX liquidity arrives and the spread becomes tradable`
@@ -281,7 +281,7 @@ function buildVenueSpreadCandidate(
   return {
     kind: "venue-spread",
     headline,
-    body,
+    content,
     sources,
     tags: ["agent-trading", "bitflow", "jingswap", "liquidity", "sbtc", "stacks"],
     fingerprint: `venue-spread:${round(bitflow.lastPrice, 0)}:${round(dex.xykStxPerBtc, 0)}:${round(dex.dlmmStxPerBtc, 0)}:${cycle.currentCycle}:${cycle.totalStx}:${cycle.totalSbtc}`,
@@ -315,7 +315,7 @@ function buildAuctionImbalanceCandidate(
     120
   );
 
-  const body = buildEditorialBody(
+  const content = buildEditorialBody(
     `JingSwap is acting like a queue, not a balanced market, at the start of cycle ${cycle.currentCycle}`,
     `Cycle ${settlement.cycle} cleared ${formatInteger(settlement.sbtcCleared)} sats against ${round(settlement.stxCleared, 2)} STX at ${formatInteger(settlement.stxPerBtc)} STX/BTC, then cycle ${cycle.currentCycle} reopened with ${queueAmount} from ${activeWallets} wallets and 0 ${missingSide} after ${formatInteger(cycle.blocksElapsed)} blocks`,
     `For AIBTC agent traders, that means treating the venue as a first-mover auction where the next ${missingSide} order can define the opening book instead of assuming continuous liquidity`
@@ -324,7 +324,7 @@ function buildAuctionImbalanceCandidate(
   return {
     kind: "auction-imbalance",
     headline,
-    body,
+    content,
     sources: [
       {
         url: `https://faktory-dao-backend.vercel.app/api/auction/settlement/${settlement.cycle}`,
@@ -367,7 +367,7 @@ function buildMarketShareCandidate(
       ? ((latest.volumeUsd - previousVolume) / previousVolume) * 100
       : 0;
 
-  if (sharePct < 8) {
+  if (sharePct < 3) {
     return null;
   }
 
@@ -376,7 +376,7 @@ function buildMarketShareCandidate(
     120
   );
 
-  const body = buildEditorialBody(
+  const content = buildEditorialBody(
     `AIBTC agent trading is still concentrated in one thin sBTC corridor instead of a deep multi-venue market`,
     `Bitflow's sBTC/STX pool handled ${formatUsd(pool.volume1dUsd)} across ${formatInteger(pool.swaps1d)} swaps in the last day, ${formatPct(sharePct)} of the full ${formatUsd(latest.volumeUsd)} Stacks DEX tape, while market-wide netflow sat at ${formatUsd(latest.netflowUsd)} with ${formatInteger(latest.uniqueTraders)} traders and ${formatInteger(latest.uniquePools)} pools, a ${formatSignedPct(dailyChangePct)} move versus the prior session`,
     `For AIBTC agent traders, that concentration means a single agent-sized sBTC order can still move price more than headline spreads suggest`
@@ -385,7 +385,7 @@ function buildMarketShareCandidate(
   return {
     kind: "market-share",
     headline,
-    body,
+    content,
     sources: [
       {
         url: "https://api.tenero.io/v1/stacks/pools/trending/1h?limit=10",
@@ -410,7 +410,7 @@ function buildZestLiquidityCandidate(
     return null;
   }
 
-  if (zest.supplyApyPct < 2.5 && zest.totalBorrowsSats < 2_000_000) {
+  if (zest.supplyApyPct < 0.5 && zest.totalBorrowsSats < 2_000_000) {
     return null;
   }
 
@@ -419,7 +419,7 @@ function buildZestLiquidityCandidate(
     120
   );
 
-  const body = buildEditorialBody(
+  const content = buildEditorialBody(
     "Zest's sBTC market is active enough to matter for how AIBTC agents park capital between trades",
     `The live reserve state implies ${formatPct(zest.supplyApyPct)} supply APY with ${formatInteger(zest.totalBorrowsSats)} sats already borrowed from the pool, so agent demand for idle sBTC carry is no longer trivial`,
     "For AIBTC agent traders, that makes Zest part of the execution stack: idle inventory can earn yield between trades, but tighter lending liquidity can also crowd short-term funding and position management"
@@ -428,7 +428,7 @@ function buildZestLiquidityCandidate(
   return {
     kind: "zest-liquidity",
     headline,
-    body,
+    content,
     sources: [
       {
         url: "https://api.mainnet.hiro.so/v2/contracts/call-read/SP2VCQJGH7PHP2DJK7Z0V48AGBHQAW3R3ZW1QF4N/pool-borrow-v2-3/get-reserve-state",
@@ -501,7 +501,7 @@ function isDuplicateAgainstRecentSignals(
   pacificDate: string
 ): boolean {
   const candidateSourceKeys = new Set(candidate.sources.map((source) => extractUrlKey(source.url)));
-  const candidateText = `${candidate.headline} ${candidate.body}`;
+  const candidateText = `${candidate.headline} ${candidate.content}`;
 
   return recentSignals.some((signal) => {
     const sourceOverlap = signal.sourceUrls.filter((url) =>
