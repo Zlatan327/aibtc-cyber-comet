@@ -70,3 +70,9 @@ process.on("uncaughtException", (err) => {
   console.error("[server] Uncaught Exception:", err);
   process.exit(1); // Let process manager (e.g. Render) restart the service
 });
+
+process.on("unhandledRejection", (reason, promise) => {
+  console.error("[server] Unhandled Rejection at:", promise, "reason:", reason);
+  // Optional: you can choose to exit if you want unhandled rejections to crash the app
+  // process.exit(1); 
+});
