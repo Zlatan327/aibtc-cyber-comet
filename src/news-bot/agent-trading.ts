@@ -4,7 +4,12 @@
 }
 
 export interface CandidateSignal {
-  kind: "venue-spread" | "auction-imbalance" | "market-share" | "zest-liquidity";
+  kind:
+    | "venue-spread"
+    | "auction-imbalance"
+    | "market-share"
+    | "zest-liquidity"
+    | "x402-rail";
   headline: string;
   body: string;
   sources: NewsSource[];
@@ -95,6 +100,23 @@ export interface ZestReserveSnapshot {
   totalBorrowsSats: number;
 }
 
+export interface ActivityMessageEvent {
+  timestamp: string;
+  senderAddress: string;
+  senderName: string;
+  recipientAddress: string;
+  recipientName: string;
+  paymentSatoshis: number;
+  messageId: string;
+}
+
+export interface ActivityFeedSnapshot {
+  totalMessages: number;
+  totalSatsTransacted: number;
+  activeAgents: number;
+  recentMessages: ActivityMessageEvent[];
+}
+
 export interface AgentTradingSnapshot {
   bitflow?: BitflowTickerSnapshot;
   marketStats?: MarketStatsPoint[];
@@ -104,6 +126,7 @@ export interface AgentTradingSnapshot {
   jingswapDepositors?: JingswapDepositorsSnapshot;
   previousSettlement?: JingswapSettlementSnapshot;
   zestReserve?: ZestReserveSnapshot;
+  activityFeed?: ActivityFeedSnapshot;
 }
 
 const STOP_WORDS = new Set([
@@ -156,6 +179,14 @@ function formatPct(value: number): string {
 function formatSignedPct(value: number): string {
   const sign = value > 0 ? "+" : "";
   return `${sign}${round(value, 1)}%`;
+}
+
+function formatIsoDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return iso;
+  }
+  return date.toISOString().slice(0, 10);
 }
 
 function finishSentence(text: string): string {
@@ -446,6 +477,71 @@ function buildZestLiquidityCandidate(
       Math.min(zest.supplyApyPct, 12) +
       Math.min(zest.totalBorrowsSats / 5_000_000, 8),
   };
+}
+
+function buildX402RailCandidate(
+  snapshot: AgentTradingSnapshot
+): CandidateSignal | null {
+  const activity = snapshot.activityFeed;
+  if (!activity || activity.recentMessages.length < 3) {
+    return null;
+  }
+
+  const now = Date.now();
+  const freshMessages = activity.recentMessages.filter((message) => {
+    const ageMs = now - new Date(message.timestamp).getTime();
+    return ageMs >= 0 && ageMs <= 96 * 60 * 60 * 1000;
+  });
+
+  if (freshMessages.length < 3) {
+    return null;
+  }
+
+  const paymentCounts = new Map<number, number>();
+  for (const message of freshMessages) {
+    paymentCounts.set(message.paymentSatoshis, (paymentCounts.get(message.paymentSatoshis) ?? 0) + 1);
+  }
+
+  const dominantPayment = [...paymentCounts.entries()].sort((left, right) => right[1] - left[1])[0];
+  if (!dominantPayment) {
+    return null;
+  }
+
+  const [pricePerMessage, dominantCount] = dominantPayment;
+  if (pricePerMessage <= 0 || dominantCount < Math.ceil(freshMessages.length * 0.7)) {
+    return null;
+  }
+
+  const participants = new Set<string>();
+  const names: string[] = [];
+  for (const message of freshMessages) {
+    for (const [address, name] of [[message.senderAddress, message.senderName], [message.recipientAddress, message.recipientName]] as const) {
+      if (!address || participants.has(address)) {
+        continue;
+      }
+      participants.add(address);
+      if (name) {
+        names.push(name);
+      }
+    }
+  }
+
+  const sampleNames = names.slice(0, 3).join(", ");
+  const latestDate = formatIsoDate(freshMessages[0].timestamp);
+  const windowSats = freshMessages.reduce((sum, message) => sum + Math.max(0, message.paymentSatoshis), 0);
+  const headline = clampText(
+    `AIBTC's x402 message rail is still pricing transport at ${formatInteger(pricePerMessage)} sats across ${formatInteger(freshMessages.length)} recent sends`,
+    120
+  );
+  const body = buildEditorialBody(
+    "AIBTC agent trading still has a visible per-message transport price, which matters for routing thin-edge trades",
+    `${formatInteger(dominantCount)} of the last ${formatInteger(freshMessages.length)} paid messages in the activity feed cleared at ${formatInteger(pricePerMessage)} sats, covering ${formatInteger(participants.size)} agents and ${formatInteger(windowSats)} sats in total, with the latest observed send on ${latestDate}${sampleNames ? ` involving ${sampleNames}` : ""}`,
+    "For AIBTC agent traders, that means x402 delivery cost is still deterministic enough to model into PSBT negotiation, order routing, and agent-to-agent execution overhead"
+  );
+
+  const sources = [1];
+  const score = 74 + Math.min(participants.size, 8);
+  return null;
 }
 
 export function buildAgentTradingCandidates(
