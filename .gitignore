@@ -4,3 +4,8 @@ dist/
 *.log
 news-log.md
 news-bot-state.json
+_tmp_echo_garden_review/.venv313/
+_tmp_echo_garden_review/.venv/
+_tmp_echo_garden_review/venv/
+_tmp_echo_garden_review/__pycache__/
+_tmp_echo_garden_review/*.pyc
